@@ -72,7 +72,9 @@ export const defaultConfig: Config = {
 		dispatchMs: 30_000,
 		relayStartMs: 10_000,
 	},
-	idleMs: 10 * 60_000,
+	// X's page runs its own timers while open, so the browser does not linger: a burst of commands shares one
+	// page load, and three quiet minutes close it.
+	idleMs: 3 * 60_000,
 	pacing: {
 		// The request limiter of transitive-bullshit/bird 0.7.1: 100 ms between requests, 5 s between searches,
 		// 15 minutes after a 429.

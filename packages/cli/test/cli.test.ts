@@ -13,7 +13,7 @@ describe("x-cli against a mock X page", () => {
 
 	afterAll(async () => {
 		await h.stop();
-		expect(h.ours()).toEqual([]);
+		expect(await h.ours()).toEqual([]);
 	});
 
 	it("fails without --account and sends nothing", async () => {
@@ -44,7 +44,7 @@ describe("x-cli against a mock X page", () => {
 		const whoami = await h.run("whoami", "--account", "personal");
 
 		expect(health.json).toMatchObject({ account: "personal", screenName: "mock_personal" });
-		expect(whoami.json).toEqual({ account: "personal", screenName: "mock_personal" });
+		expect(whoami.json).toMatchObject({ account: "personal", screenName: "mock_personal", id: "1001" });
 	});
 
 	it("pages a timeline with -n", async () => {
@@ -121,7 +121,7 @@ describe("x-cli against a mock X page", () => {
 			expect(writes[i]!.at - writes[i - 1]!.at).toBeGreaterThanOrEqual(400);
 		}
 		// One browser at a time: the personal one stopped when pro started
-		expect(h.ours().filter((line) => line.includes("moli"))).toHaveLength(1);
+		expect((await h.ours()).filter((line) => line.includes("moli"))).toHaveLength(1);
 	});
 
 	it("reports a logged-out page as logged_out within the deadline", async () => {
