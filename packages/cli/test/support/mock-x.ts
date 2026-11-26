@@ -252,6 +252,22 @@ export const startMockX = async (port: number) => {
 														],
 													},
 												},
+												{
+													entryId: "list-to-follow-module-1",
+													content: {
+														entryType: "TimelineTimelineModule",
+														items: [
+															{
+																item: {
+																	itemContent: {
+																		itemType: "TimelineTwitterList",
+																		list: listObject("999", "suggested", false),
+																	},
+																},
+															},
+														],
+													},
+												},
 											],
 										},
 									],
