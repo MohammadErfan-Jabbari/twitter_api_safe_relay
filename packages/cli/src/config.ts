@@ -17,7 +17,8 @@ const account = z
 const schema = z
 	.object({
 		stateDir: z.string(),
-		relay: z.object({ host: z.string(), port: z.number().int().min(1).max(65535) }).strict(),
+		// The relay refuses any request whose Host is not one of these on its port
+		relay: z.object({ host: z.enum(["127.0.0.1", "localhost"]), port: z.number().int().min(1).max(65535) }).strict(),
 		browser: z
 			.object({
 				moliPath: z.string(),

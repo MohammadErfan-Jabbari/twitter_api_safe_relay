@@ -5,6 +5,7 @@ export const errorTypes = {
 	unknown_account: 2,
 	unknown_operation: 2, // not in the registry, so it cannot be sent
 	invalid_arguments: 2,
+	forbidden_host: 2, // a relay request whose Host is not 127.0.0.1 or localhost on the relay's port
 	relay_unreachable: 3,
 	browser_down: 3,
 	timeout: 4,
@@ -51,6 +52,8 @@ export const httpStatusOf = (type: ErrorType) => {
 		case "unknown_operation":
 		case "invalid_arguments":
 			return 400;
+		case "forbidden_host":
+			return 403;
 		case "not_found":
 			return 404;
 		case "rate_limited":
