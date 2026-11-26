@@ -134,6 +134,9 @@
 
 						return result;
 					};
+					// The wrapper hides the module's source, which holds X's GraphQL query IDs and feature switches.
+					// Keep the original reachable so a caller can read them from the page.
+					Object.defineProperty(modules[moduleId], "elonmusk_114514_original", { value: originalFactory });
 				}
 			}
 			return originalPush(chunk);
