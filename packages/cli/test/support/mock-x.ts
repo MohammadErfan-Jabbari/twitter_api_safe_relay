@@ -3,6 +3,7 @@
 // records every request and answers with X-shaped fixtures. The session cookie picks the behaviour:
 //   no auth_token -> redirect to the login page    "challenge" -> redirect to /account/access
 //   "hang"        -> API requests never answer      "basic"     -> bookmark folders answer 403 (no Premium)
+//   "overloaded"  -> API requests answer 503 with a page that is not JSON
 import crypto from "node:crypto";
 import http from "node:http";
 
@@ -15,6 +16,7 @@ export type RecordedRequest = {
 	features?: string[];
 	form?: Record<string, string>;
 	authToken?: string;
+	csrfToken?: string;
 	at: number;
 };
 
@@ -75,14 +77,20 @@ const client = `function (module, exports, require) {
 		dispatch(request) {
 			var url = "/i/api" + request.path;
 			if (request.params) url += "?" + new URLSearchParams(request.params);
-			var init = { method: request.method, headers: request.headers || {} };
+			// Like X's client: the ct0 cookie goes out as the x-csrf-token header
+			var ct0 = (document.cookie.match(/(?:^|; )ct0=([^;]*)/) || [])[1];
+			var headers = Object.assign({}, request.headers || {}, ct0 ? { "x-csrf-token": ct0 } : {});
+			var init = { method: request.method, headers: headers };
 			if (request.data !== undefined) init.body = typeof request.data === "string" ? request.data : JSON.stringify(request.data);
 			return fetch(url, init).then(function (response) {
-				return response.json().then(function (body) {
-					// Like X's client: any errors in the body throw, even on a 200 that also carries data
+				return response.text().then(function (text) {
+					var body;
+					try { body = JSON.parse(text); } catch (e) { body = {}; }
+					// Like X's client: any errors in the body throw, even on a 200 that also carries data, and the
+					// error keeps the request it was for, headers included
 					if (!response.ok || (body.errors && body.errors.length)) {
 						var codes = (body.errors || []).map(function (e) { return e.code; }).join(",");
-						throw Object.assign(new Error("ApiError: " + url + " HTTP-" + response.status + " codes:[" + codes + "]"), { status: response.status });
+						throw Object.assign(new Error("ApiError: " + url + " HTTP-" + response.status + " codes:[" + codes + "]"), { status: response.status, request: { url: url, headers: headers } });
 					}
 					return body;
 				});
@@ -349,6 +357,7 @@ export const startMockX = async (port: number) => {
 				method: request.method ?? "GET",
 				path: url.pathname,
 				authToken,
+				csrfToken: request.headers["x-csrf-token"] as string | undefined,
 				at: Date.now(),
 			};
 			const graphql = url.pathname.match(/^\/i\/api\/graphql\/([^/]+)\/([^/]+)$/);
@@ -365,6 +374,10 @@ export const startMockX = async (port: number) => {
 			if (authToken === "hang") {
 				held.push(response);
 				return;
+			}
+			if (authToken === "overloaded") {
+				response.writeHead(503, { "content-type": "text/html" });
+				return response.end(page("<p>Over capacity</p>"));
 			}
 			if (graphql && queryIds[graphql[2]!] !== graphql[1]) {
 				return json(response, 404, { errors: [{ message: "Query not found" }] });
