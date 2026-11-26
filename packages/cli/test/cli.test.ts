@@ -3,15 +3,22 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { leakyCt0, ports, startHarness } from "./support/harness.ts";
+import { leakyCt0, startHarness } from "./support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof startHarness>>;
 
 // fetch will not let a caller set Host, so this speaks HTTP directly, as a page on a rebinding domain would
-const withHost = (host: string, method: string, route: string, headers: Record<string, string> = {}, body = "") =>
+const withHost = (
+	port: number,
+	host: string,
+	method: string,
+	route: string,
+	headers: Record<string, string> = {},
+	body = "",
+) =>
 	new Promise<{ status: number; json: any }>((resolve, reject) => {
 		const request = http.request(
-			{ host: "127.0.0.1", port: ports.relay, method, path: route, headers: { ...headers, host } },
+			{ host: "127.0.0.1", port, method, path: route, headers: { ...headers, host } },
 			(response) => {
 				let text = "";
 				response.on("data", (chunk) => {
@@ -114,8 +121,10 @@ describe("x-cli against a mock X page", () => {
 	it("refuses a request whose Host is not the relay's own loopback address", async () => {
 		await h.run("health", "--account", "personal");
 		const before = h.mock.requests.length;
+		const { relay: port } = h.ports;
 		const call = (host: string) =>
 			withHost(
+				port,
 				host,
 				"POST",
 				"/v1/call",
@@ -123,11 +132,11 @@ describe("x-cli against a mock X page", () => {
 				JSON.stringify({ op: "lists.mine", args: {} }),
 			);
 
-		const rebound = await call(`attacker.example:${ports.relay}`);
-		const otherPort = await call(`localhost:${ports.relay + 100}`);
-		const stopping = await withHost(`attacker.example:${ports.relay}`, "POST", "/v1/stop");
-		const byAddress = await withHost(`127.0.0.1:${ports.relay}`, "GET", "/health");
-		const byName = await withHost(`localhost:${ports.relay}`, "GET", "/health");
+		const rebound = await call(`attacker.example:${port}`);
+		const otherPort = await call(`localhost:${port + 100}`);
+		const stopping = await withHost(port, `attacker.example:${port}`, "POST", "/v1/stop");
+		const byAddress = await withHost(port, `127.0.0.1:${port}`, "GET", "/health");
+		const byName = await withHost(port, `localhost:${port}`, "GET", "/health");
 
 		expect([rebound.status, otherPort.status, stopping.status]).toEqual([403, 403, 403]);
 		expect(rebound.json.error.type).toBe("forbidden_host");
@@ -244,11 +253,104 @@ describe("x-cli against a mock X page", () => {
 		expect(files.filter((file) => fs.readFileSync(file, "utf8").includes(leakyCt0))).toEqual([]);
 	});
 
+	it("reads whom an account follows, its own or another's", async () => {
+		const mine = await h.run("following", "--account", "personal", "-n", "2");
+		const theirs = await h.run("following", "--user", "@someone", "--account", "personal");
+
+		expect(mine.json).toMatchObject({ account: "personal", count: 2 });
+		expect(mine.json.items.map((u: { screenName: string }) => u.screenName)).toEqual(["ann", "bob"]);
+		expect(theirs.json.items.map((u: { id: string }) => u.id)).toEqual(["424200", "424201", "424202"]);
+		const sent = h.mock.requests.filter((r) => r.operationName === "Following");
+		expect(sent.map((r) => r.variables?.userId)).toEqual(["1001", "4242"]);
+	});
+
+	it("pages one bookmark folder with --folder", async () => {
+		const run = await h.run("bookmarks", "--folder", "555", "--account", "personal", "-n", "25");
+
+		expect(run.json.count).toBe(25);
+		expect(run.json.items[24]).toMatchObject({ id: "825", text: "tweet 25" });
+		const sent = h.mock.requests.filter((r) => r.operationName === "BookmarkFolderTimeline");
+		expect(sent.map((r) => r.variables?.bookmark_collection_id)).toEqual(["555", "555"]);
+	});
+
+	it("updates only the list fields it is given", async () => {
+		const updated = await h.run("list", "update", "333", "--name", "renamed", "--public", "--account", "personal");
+		const both = await h.run("list", "update", "333", "--public", "--private", "--account", "personal");
+		const nothing = await h.run("list", "update", "333", "--account", "personal");
+
+		expect(updated.json).toMatchObject({ id: "333", name: "renamed", private: false });
+		expect(both.json.error.type).toBe("usage");
+		expect(nothing.json.error.type).toBe("invalid_arguments");
+		const sent = h.mock.requests.filter((r) => r.operationName === "UpdateList");
+		expect(sent.map((r) => r.variables)).toEqual([{ listId: "333", isPrivate: false, name: "renamed" }]);
+	});
+
+	it("runs a bookmark folder round with writes paced apart", async () => {
+		const created = await h.run("folder", "create", "papers2", "--account", "personal");
+		const renamed = await h.run("folder", "rename", "556", "reading", "--account", "personal");
+		const added = await h.run("folder", "add", "556", "1234", "--account", "personal");
+		const removed = await h.run("folder", "remove", "556", "1234", "--account", "personal");
+		const deleted = await h.run("folder", "delete", "556", "--account", "personal");
+
+		expect(created.json).toEqual({ bookmark_collection_create: { id: "556", name: "papers2" } });
+		expect([renamed.code, added.code, removed.code, deleted.code]).toEqual([0, 0, 0, 0]);
+		const names = [
+			"createBookmarkFolder",
+			"EditBookmarkFolder",
+			"bookmarkTweetToFolder",
+			"RemoveTweetFromBookmarkFolder",
+			"DeleteBookmarkFolder",
+		];
+		const writes = h.mock.requests.filter((r) => names.includes(r.operationName ?? ""));
+		expect(writes.map((w) => [w.operationName, w.variables])).toEqual([
+			["createBookmarkFolder", { name: "papers2" }],
+			["EditBookmarkFolder", { bookmark_collection_id: "556", name: "reading" }],
+			["bookmarkTweetToFolder", { tweet_id: "1234", bookmark_collection_id: "556" }],
+			["RemoveTweetFromBookmarkFolder", { tweet_id: "1234", bookmark_collection_id: "556" }],
+			["DeleteBookmarkFolder", { bookmark_collection_id: "556" }],
+		]);
+		for (let i = 1; i < writes.length; i++) {
+			expect(writes[i]!.at - writes[i - 1]!.at).toBeGreaterThanOrEqual(400);
+		}
+	});
+
+	it("changes settings with settings set and refuses a value X does not take", async () => {
+		const set = await h.run("settings", "set", "protected=true", "allow_dms_from=following", "--account", "personal");
+		const bad = await h.run("settings", "set", "allow_dms_from=everyone", "--account", "personal");
+
+		expect(set.code).toBe(0);
+		expect(set.json).toMatchObject({ screen_name: "mock_personal", protected: "true", allow_dms_from: "following" });
+		expect(bad.json.error.type).toBe("invalid_arguments");
+		const posts = h.mock.requests.filter((r) => r.method === "POST" && r.path === "/i/api/1.1/account/settings.json");
+		expect(posts.map((r) => r.form)).toEqual([{ protected: "true", allow_dms_from: "following" }]);
+	});
+
 	it("says plainly when bookmark folders need Premium", async () => {
 		const basic = await h.run("bookmark-folders", "--account", "basic");
 		const premium = await h.run("bookmark-folders", "--account", "personal");
 
 		expect(basic.json.error.type).toBe("premium_required");
 		expect(premium.json.items).toEqual([{ id: "555", name: "papers" }]);
+	});
+});
+
+describe("x-cli when the browser cannot start", () => {
+	let h: Harness;
+
+	beforeAll(async () => {
+		h = await startHarness({ offset: 3, moliPath: "/nonexistent/moli" });
+	});
+
+	afterAll(async () => {
+		await h.stop();
+		expect(await h.ours()).toEqual([]);
+	});
+
+	it("reports browser_down from health and sends nothing", async () => {
+		const run = await h.run("health", "--account", "personal");
+
+		expect(run.code).toBe(3);
+		expect(run.json.error.type).toBe("browser_down");
+		expect(h.mock.requests).toEqual([]);
 	});
 });

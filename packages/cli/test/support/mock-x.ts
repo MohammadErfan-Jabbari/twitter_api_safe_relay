@@ -129,6 +129,19 @@ const tweetEntry = (id: string, screenName: string, text: string) => ({
 	},
 });
 
+const userEntry = (id: string, screenName: string) => ({
+	entryId: `user-${id}`,
+	content: {
+		entryType: "TimelineTimelineItem",
+		itemContent: {
+			itemType: "TimelineUser",
+			user_results: {
+				result: { __typename: "User", rest_id: id, core: { screen_name: screenName, name: screenName } },
+			},
+		},
+	},
+});
+
 const cursorEntry = (value: string) => ({
 	entryId: `cursor-bottom-${value}`,
 	content: { entryType: "TimelineTimelineCursor", cursorType: "Bottom", value },
@@ -224,6 +237,16 @@ export const startMockX = async (port: number) => {
 				return json(response, 200, { data: { home: { home_timeline_urt: tweetTimeline(v.cursor, "") } } });
 			case "Bookmarks":
 				return json(response, 200, { data: { bookmark_timeline_v2: tweetTimeline(v.cursor, "5") } });
+			case "BookmarkFolderTimeline":
+				return json(response, 200, { data: { bookmark_collection_timeline: tweetTimeline(v.cursor, "8") } });
+			case "Following": {
+				const entries = ["ann", "bob", "cat"].map((name, i) => userEntry(`${v.userId}0${i}`, name));
+				return json(response, 200, {
+					data: {
+						user: { result: { timeline: { timeline: { instructions: [{ type: "TimelineAddEntries", entries }] } } } },
+					},
+				});
+			}
 			case "ListLatestTweetsTimeline":
 				return json(response, 200, { data: { list: { tweets_timeline: tweetTimeline(v.cursor, "7") } } });
 			case "ListsManagementPageTimeline":
@@ -292,6 +315,10 @@ export const startMockX = async (port: number) => {
 					});
 				}
 				return json(response, 200, { data: { list: listObject("333", String(v.name), Boolean(v.isPrivate), 0) } });
+			case "UpdateList":
+				return json(response, 200, {
+					data: { list: listObject(String(v.listId), String(v.name ?? "reading"), v.isPrivate ?? true) },
+				});
 			case "ListAddMember":
 				return json(response, 200, { data: { list: listObject(String(v.listId), "added", true, 1) } });
 			case "ListRemoveMember":
@@ -311,6 +338,18 @@ export const startMockX = async (port: number) => {
 						},
 					},
 				});
+			case "createBookmarkFolder":
+				return json(response, 200, { data: { bookmark_collection_create: { id: "556", name: v.name } } });
+			case "EditBookmarkFolder":
+				return json(response, 200, {
+					data: { bookmark_collection_update: { id: v.bookmark_collection_id, name: v.name } },
+				});
+			case "DeleteBookmarkFolder":
+				return json(response, 200, { data: { bookmark_collection_delete: "Done" } });
+			case "bookmarkTweetToFolder":
+				return json(response, 200, { data: { bookmark_collection_tweet_put: "Done" } });
+			case "RemoveTweetFromBookmarkFolder":
+				return json(response, 200, { data: { bookmark_collection_tweet_delete: "Done" } });
 			default:
 				return json(response, 200, { data: {} });
 		}
