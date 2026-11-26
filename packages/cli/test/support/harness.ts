@@ -35,6 +35,8 @@ export const startHarness = async (overrides: { timeouts?: Record<string, number
 		accounts: {
 			personal: { cookieEnv: "XT_PERSONAL", screenName: "mock_personal" },
 			pro: { cookieEnv: "XT_PRO", screenName: "mock_pro" },
+			// Personal's cookies, but configured to be pro
+			imposter: { cookieEnv: "XT_PERSONAL", screenName: "mock_pro" },
 			ghost: { cookieEnv: "XT_GHOST" },
 			dead: { cookieEnv: "XT_PERSONAL", homeUrl: `${mock.url}/dead` },
 			slow: { cookieEnv: "XT_SLOW" },

@@ -47,6 +47,17 @@ describe("x-cli against a mock X page", () => {
 		expect(whoami.json).toMatchObject({ account: "personal", screenName: "mock_personal", id: "1001" });
 	});
 
+	it("refuses a session signed in as another account after the Viewer call alone", async () => {
+		const before = h.mock.requests.length;
+
+		const run = await h.run("lists", "--account", "imposter");
+
+		expect(run.code).toBe(5);
+		expect(run.json.error).toMatchObject({ type: "wrong_account", expected: "mock_pro", actual: "mock_personal" });
+		expect(h.mock.requests.slice(before).map((r) => r.operationName)).toEqual(["Viewer"]);
+		expect((await h.ours()).filter((line) => line.includes("moli"))).toEqual([]);
+	});
+
 	it("pages a timeline with -n", async () => {
 		const run = await h.run("home", "--account", "personal", "-n", "30");
 
