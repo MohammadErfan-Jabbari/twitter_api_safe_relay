@@ -79,7 +79,11 @@ const client = `function (module, exports, require) {
 			if (request.data !== undefined) init.body = typeof request.data === "string" ? request.data : JSON.stringify(request.data);
 			return fetch(url, init).then(function (response) {
 				return response.json().then(function (body) {
-					if (!response.ok) throw Object.assign(new Error("HTTP " + response.status), { status: response.status, response: body });
+					// Like X's client: any errors in the body throw, even on a 200 that also carries data
+					if (!response.ok || (body.errors && body.errors.length)) {
+						var codes = (body.errors || []).map(function (e) { return e.code; }).join(",");
+						throw Object.assign(new Error("ApiError: " + url + " HTTP-" + response.status + " codes:[" + codes + "]"), { status: response.status });
+					}
 					return body;
 				});
 			});

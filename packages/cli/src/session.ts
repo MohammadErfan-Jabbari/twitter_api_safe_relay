@@ -53,9 +53,35 @@ const apiPathOf = (url: string) => {
 	return pathname.startsWith("/i/api/") ? pathname.slice("/i/api".length) : pathname;
 };
 
+// X's ApiError message ends with the codes: "… HTTP-200 codes:[214,214]"
+const messageCodesOf = (message: string): number[] => {
+	const list = message.match(/codes:\[([\d,\s]*)\]/)?.[1] ?? "";
+	return list
+		.split(",")
+		.map((code) => Number(code.trim()))
+		.filter((code) => Number.isInteger(code) && code > 0);
+};
+
 const errorCodesOf = (value: unknown): number[] => {
 	const text = JSON.stringify(value ?? null);
 	return Array.from(text.matchAll(/"code":\s*(\d+)/g), (match) => Number(match[1]));
+};
+
+// The first object, near the top, that carries a GraphQL data object
+const dataIn = (value: any, depth = 0): { data: unknown; errors?: unknown } | undefined => {
+	if (value === null || typeof value !== "object" || depth > 3) {
+		return undefined;
+	}
+	if (value.data !== null && typeof value.data === "object" && !Array.isArray(value.data)) {
+		return { data: value.data, errors: value.errors };
+	}
+	for (const child of Object.values(value)) {
+		const found = dataIn(child, depth + 1);
+		if (found) {
+			return found;
+		}
+	}
+	return undefined;
 };
 
 const tail = (file: string) => {
@@ -356,8 +382,10 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 		return limiter.run({ write: operation.access === "write", search: Boolean(operation.search) }, async () => {
 			let status: number | undefined;
 			let headers: Promise<Record<string, string>> = Promise.resolve({});
+			let matched: Response | undefined;
 			const listener = (response: Response) => {
 				if (apiPathOf(response.url()) === path) {
+					matched = response;
 					status = response.status();
 					headers = response.allHeaders().catch(() => ({}));
 				}
@@ -371,9 +399,24 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 							try {
 								return { ok: true, value: await globalThis.elonmusk_114514_request({ property, query } as any) };
 							} catch (error: any) {
+								// X's ApiError keeps what it knows in its own properties, enumerable or not.
+								const plain = (value: any, depth: number): any => {
+									if (value === null || typeof value !== "object" || depth > 4) {
+										return typeof value === "function" ? undefined : value;
+									}
+									const out: any = Array.isArray(value) ? [] : {};
+									for (const key of Object.getOwnPropertyNames(value)) {
+										if (key !== "stack") {
+											try {
+												out[key] = plain(value[key], depth + 1);
+											} catch {}
+										}
+									}
+									return out;
+								};
 								let body: unknown;
 								try {
-									body = JSON.parse(JSON.stringify(error?.response ?? error?.errors ?? error?.data ?? null));
+									body = JSON.parse(JSON.stringify(plain(error, 0) ?? null));
 								} catch {}
 								return {
 									ok: false,
@@ -417,8 +460,27 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 			}
 			const responseHeaders = await headers;
 			const httpStatus = status ?? (outcome.ok ? undefined : outcome.error.status);
-			const payload = outcome.ok ? outcome.value : outcome.error.body;
-			const codes = errorCodesOf(outcome.ok ? outcome.value?.errors : [outcome.error.body, outcome.error.message]);
+			// When X's client throws, the response body on the wire says what X sent.
+			const raw = outcome.ok
+				? undefined
+				: await withDeadline(
+						matched ? matched.json().catch(() => undefined) : Promise.resolve(undefined),
+						5_000,
+						async () => new XCliError("timeout", "response body"),
+					).catch(() => undefined);
+			// Codes come from everything X sent, before any recovery below
+			const codes = outcome.ok
+				? errorCodesOf(outcome.value?.errors)
+				: [...errorCodesOf([raw?.errors, outcome.error.body]), ...messageCodesOf(outcome.error.message)];
+			// X's client throws when a successful response also carries errors, such as the lists response's
+			// per-list banner errors (code 214). The data is still there, so use it.
+			if (!outcome.ok && (httpStatus === undefined || httpStatus < 400)) {
+				const recovered = dataIn(raw) ?? dataIn(outcome.error.body);
+				if (recovered && Object.keys(recovered.data as object).length > 0) {
+					outcome = { ok: true, value: recovered };
+				}
+			}
+			const payload = outcome.ok ? outcome.value : (raw ?? outcome.error.body);
 			const flagged = codes.find((code) => FLAGGED_CODES.has(code));
 			if (flagged !== undefined) {
 				await limiter.coolDown(clock.now() + config.pacing.flaggedCooldownMs, `X error ${flagged}`);
