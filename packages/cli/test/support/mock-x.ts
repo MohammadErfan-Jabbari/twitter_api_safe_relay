@@ -19,6 +19,7 @@ export type RecordedRequest = {
 };
 
 const operations: [string, "query" | "mutation", string[]][] = [
+	["Viewer", "query", []],
 	["UserByScreenName", "query", ["mock_feature_user"]],
 	["Following", "query", ["mock_feature_timeline"]],
 	["HomeLatestTimeline", "query", ["mock_feature_timeline", "mock_feature_home"]],
@@ -174,10 +175,28 @@ export const startMockX = async (port: number) => {
 		response.end(JSON.stringify(body));
 	};
 
+	// tok-personal signs in as mock_personal; any other session as someone
+	const screenNameOf = (authToken: string | undefined) =>
+		authToken?.startsWith("tok-") ? `mock_${authToken.slice(4)}` : "someone";
+
 	const answer = (record: RecordedRequest, response: http.ServerResponse) => {
 		const v = (record.variables ?? {}) as Record<string, any>;
 		const auth = record.authToken;
 		switch (record.operationName) {
+			case "Viewer":
+				return json(response, 200, {
+					data: {
+						viewer: {
+							user_results: {
+								result: {
+									__typename: "User",
+									rest_id: "1001",
+									core: { screen_name: screenNameOf(auth), name: "Mock" },
+								},
+							},
+						},
+					},
+				});
 			case "UserByScreenName":
 				if (v.screen_name === "nobody_here") {
 					return json(response, 200, { data: {} });
@@ -331,8 +350,7 @@ export const startMockX = async (port: number) => {
 				return json(response, 404, { errors: [{ message: "Query not found" }] });
 			}
 			if (url.pathname === "/i/api/1.1/account/settings.json") {
-				const screenName = authToken?.startsWith("tok-") ? `mock_${authToken.slice(4)}` : "someone";
-				return json(response, 200, { screen_name: screenName, protected: false, ...record.form });
+				return json(response, 200, { screen_name: screenNameOf(authToken), protected: false, ...record.form });
 			}
 			return answer(record, response);
 		});

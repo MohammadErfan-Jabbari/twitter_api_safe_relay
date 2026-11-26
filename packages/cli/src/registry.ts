@@ -9,6 +9,8 @@ export type RestSpec = {
 	kind: "rest";
 	method: "GET" | "POST";
 	path: string;
+	// Query parameters, as X's web app sends them
+	params?: Record<string, string>;
 	form?: (args: any) => Record<string, string>;
 };
 
@@ -52,10 +54,39 @@ export const settingsFields = {
 } as const;
 
 export const registry = {
+	"account.viewer": op({
+		access: "read",
+		args: z.object({}).strict(),
+		request: { kind: "graphql", operationName: "Viewer", variables: () => ({}) },
+		extract: (response) => {
+			const viewer = user(response?.data?.viewer?.user_results?.result);
+			if (!viewer?.screenName) {
+				throw new XCliError("x_error", "X's Viewer response names no signed-in account");
+			}
+			return viewer;
+		},
+	}),
 	"account.settings": op({
 		access: "read",
 		args: z.object({}).strict(),
-		request: { kind: "rest", method: "GET", path: "/1.1/account/settings.json" },
+		request: {
+			kind: "rest",
+			method: "GET",
+			path: "/1.1/account/settings.json",
+			// The parameters X's web app sends (recorded in packages/server/requests.ndjson)
+			params: {
+				include_ext_sharing_audiospaces_listening_data_with_followers: "true",
+				include_mention_filter: "true",
+				include_nsfw_user_flag: "true",
+				include_nsfw_admin_flag: "true",
+				include_ranked_timeline: "true",
+				include_alt_text_compose: "true",
+				include_ext_dm_av_call_settings: "true",
+				ext: "ssoConnections",
+				include_country_code: "true",
+				include_ext_dm_nsfw_media_filter: "true",
+			},
+		},
 		extract: (response) => response,
 	}),
 	"account.updateSettings": op({

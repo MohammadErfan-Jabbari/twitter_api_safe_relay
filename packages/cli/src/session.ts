@@ -302,12 +302,11 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 	};
 
 	const readScreenName = async (current: Slot) => {
-		const settings = (await send(current, "account.settings", findOperation("account.settings")!, {})) as any;
-		current.screenName = String(settings?.screen_name ?? "");
+		const viewer = (await send(current, "account.viewer", findOperation("account.viewer")!, {})) as {
+			screenName: string;
+		};
+		current.screenName = viewer.screenName;
 		current.verifiedAt = Date.now();
-		if (!current.screenName) {
-			throw new XCliError("x_error", "X's settings response has no screen_name");
-		}
 		return current.screenName;
 	};
 
@@ -347,9 +346,8 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 				{
 					method: spec.method,
 					path,
-					headers: form
-						? { "content-type": "application/x-www-form-urlencoded" }
-						: { "content-type": "application/json" },
+					headers: form ? { "content-type": "application/x-www-form-urlencoded" } : {},
+					...(spec.params ? { params: spec.params } : {}),
 					...(form ? { data: new URLSearchParams(form).toString() } : {}),
 				},
 			];

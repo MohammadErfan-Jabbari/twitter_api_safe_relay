@@ -76,7 +76,7 @@ const privacyOf = (ctx: Context) => {
 };
 
 const commands: Record<string, (ctx: Context) => Promise<unknown>> = {
-	whoami: async (ctx) => ({ account: ctx.account, screenName: (await call(ctx, "account.settings")).screen_name }),
+	whoami: async (ctx) => ({ account: ctx.account, ...(await call(ctx, "account.viewer")) }),
 	health: (ctx) => relayRequest(ctx.config, "/v1/health", { account: ctx.account }),
 	home: (ctx) => collect(ctx, "home.following", {}),
 	lists: (ctx) => collect(ctx, "lists.mine", {}),
@@ -98,8 +98,10 @@ const commands: Record<string, (ctx: Context) => Promise<unknown>> = {
 		return { account: ctx.account, count: items.length, items };
 	},
 	following: async (ctx) => {
-		const screenName = ctx.values.user ?? (await call(ctx, "account.settings")).screen_name;
-		return collect(ctx, "user.following", { userId: await userIdOf(ctx, screenName) });
+		const userId = ctx.values.user
+			? await userIdOf(ctx, ctx.values.user)
+			: ((await call(ctx, "account.viewer")).id as string);
+		return collect(ctx, "user.following", { userId });
 	},
 	settings: async (ctx) => {
 		if (ctx.positionals[1] === "set") {

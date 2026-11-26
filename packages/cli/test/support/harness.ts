@@ -76,15 +76,17 @@ export const startHarness = async (overrides: { timeouts?: Record<string, number
 
 	const relay = (route: string, init: RequestInit = {}) => fetch(`http://127.0.0.1:${ports.relay}${route}`, init);
 
-	// Browsers on our port and relays of this checkout
-	const ours = () =>
-		execFileSync("ps", ["-eo", "pid,args"], { encoding: "utf8" })
+	// The browser on the test port, and the relay if it still answers on its test port
+	const ours = async () => {
+		const browsers = execFileSync("ps", ["-eo", "pid,args"], { encoding: "utf8" })
 			.split("\n")
-			.filter(
-				(line) =>
-					(line.includes("moli") && line.includes(`--port ${ports.browser}`)) ||
-					line.includes(`${path.dirname(path.dirname(bin))}/src/cli.ts serve`),
-			);
+			.filter((line) => line.includes("moli") && line.includes(`--port ${ports.browser}`));
+		const relayUp = await relay("/health").then(
+			() => true,
+			() => false,
+		);
+		return relayUp ? [...browsers, `relay on ${ports.relay}`] : browsers;
+	};
 
 	const stop = async () => {
 		await run("stop");
