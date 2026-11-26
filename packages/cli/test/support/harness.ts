@@ -6,7 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startMockX } from "./mock-x.ts";
 
-export const ports = { mock: 9355, relay: 9356, browser: 9357 };
+// X_CLI_TEST_PORT_BASE moves the three ports, so two checkouts can run the suite side by side.
+const base = Number(process.env.X_CLI_TEST_PORT_BASE ?? 9355);
+export const ports = { mock: base, relay: base + 1, browser: base + 2 };
 
 const bin = fileURLToPath(new URL("../../bin/x-cli", import.meta.url));
 
