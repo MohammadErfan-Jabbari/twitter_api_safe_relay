@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.ts";
 import { connectProfileBrowser } from "../src/utils/browser.ts";
 
+// These tests drive the real x.com and need a signed-in session (X_COOKIE_FILE, set in CI).
+const itLive = it.skipIf(!process.env.X_COOKIE_FILE);
+
 describe("someFunction", () => {
 	const integration = createIntegration();
 
@@ -37,7 +40,7 @@ describe("someFunction", () => {
 		return app;
 	};
 
-	it("graphQL GET", async () => {
+	itLive("graphQL GET", async () => {
 		const app = await createMockApp();
 		const params = new URLSearchParams({
 			variables: JSON.stringify({
@@ -108,7 +111,7 @@ describe("someFunction", () => {
 		expect(health.rateLimit.mock.TweetResultByRestId.limit).toBeGreaterThan(0);
 	}, 120_000);
 
-	it("v1.1 GET under /i/api, like the X web app", async () => {
+	itLive("v1.1 GET under /i/api, like the X web app", async () => {
 		const app = await createMockApp();
 		const params = new URLSearchParams({ q: "elonmusk", result_type: "users" });
 
