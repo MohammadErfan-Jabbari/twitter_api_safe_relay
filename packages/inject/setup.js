@@ -75,6 +75,10 @@
 							require.d = originalDefineExports;
 						}
 
+						// Some modules leave module.exports unset; there is no client class to find in them.
+						if (module == null || module.exports == null) {
+							return result;
+						}
 						const propertyDescriptors = Object.getOwnPropertyDescriptors(module.exports);
 						for (const [exportKey, _descriptor] of Object.entries(propertyDescriptors)) {
 							const originalClass = module.exports[exportKey];
