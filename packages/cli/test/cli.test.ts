@@ -1,10 +1,28 @@
 // The whole path offline: the x-cli command, the relay it starts, Moli, the bridge and a mock X page.
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { leakyCt0, startHarness } from "./support/harness.ts";
+import { leakyCt0, ports, startHarness } from "./support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof startHarness>>;
+
+// fetch will not let a caller set Host, so this speaks HTTP directly, as a page on a rebinding domain would
+const withHost = (host: string, method: string, route: string, headers: Record<string, string> = {}, body = "") =>
+	new Promise<{ status: number; json: any }>((resolve, reject) => {
+		const request = http.request(
+			{ host: "127.0.0.1", port: ports.relay, method, path: route, headers: { ...headers, host } },
+			(response) => {
+				let text = "";
+				response.on("data", (chunk) => {
+					text += chunk;
+				});
+				response.on("end", () => resolve({ status: response.statusCode ?? 0, json: JSON.parse(text) }));
+			},
+		);
+		request.on("error", reject);
+		request.end(body);
+	});
 
 describe("x-cli against a mock X page", () => {
 	let h: Harness;
@@ -83,6 +101,30 @@ describe("x-cli against a mock X page", () => {
 		expect(command.code).toBe(2);
 		expect(command.json.error.type).toBe("usage");
 		expect(h.mock.requests.length).toBe(before);
+	});
+
+	it("refuses a request whose Host is not the relay's own loopback address", async () => {
+		await h.run("health", "--account", "personal");
+		const before = h.mock.requests.length;
+		const call = (host: string) =>
+			withHost(
+				host,
+				"POST",
+				"/v1/call",
+				{ "content-type": "application/json", "x-profile-name": "personal" },
+				JSON.stringify({ op: "lists.mine", args: {} }),
+			);
+
+		const rebound = await call(`attacker.example:${ports.relay}`);
+		const otherPort = await call(`localhost:${ports.relay + 100}`);
+		const stopping = await withHost(`attacker.example:${ports.relay}`, "POST", "/v1/stop");
+		const byAddress = await withHost(`127.0.0.1:${ports.relay}`, "GET", "/health");
+		const byName = await withHost(`localhost:${ports.relay}`, "GET", "/health");
+
+		expect([rebound.status, otherPort.status, stopping.status]).toEqual([403, 403, 403]);
+		expect(rebound.json.error.type).toBe("forbidden_host");
+		expect(h.mock.requests.length).toBe(before);
+		expect([byAddress.status, byName.status]).toEqual([200, 200]);
 	});
 
 	it("refuses a request without a profile name when two profiles are configured", async () => {

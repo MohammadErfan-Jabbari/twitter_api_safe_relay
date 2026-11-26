@@ -34,6 +34,20 @@ export const createRelay = (config: Config, options: { clock?: Clock; env?: Node
 	const sessions = createSessions(config, options);
 	const app = new Hono();
 
+	// A web page can rebind its own domain to 127.0.0.1 and then call the relay; its requests still carry that
+	// domain as Host, so the relay answers only requests addressed to itself.
+	const ownHosts = new Set([`127.0.0.1:${config.relay.port}`, `localhost:${config.relay.port}`]);
+	app.use(async (c, next) => {
+		const host = c.req.header("host")?.toLowerCase() ?? "";
+		if (!ownHosts.has(host)) {
+			return fail(
+				c,
+				new XCliError("forbidden_host", "The relay answers only requests to 127.0.0.1 or localhost", { host }),
+			);
+		}
+		await next();
+	});
+
 	app.get("/health", (c) =>
 		c.json({ ok: true, service: "x-cli-relay", pid: process.pid, browser: sessions.status() ?? null }),
 	);
