@@ -21,7 +21,11 @@ Every command except `serve` and `stop` needs `--account`. There is no default a
 | `following [--user <name>] [-n N]` | `folder add\|remove <folder-id> <tweet-id>` |
 | `settings` | `settings set <field>=<value> ...` |
 
-`health` loads the account's page and returns the signed-in screen name. Otherwise it returns a typed failure: `logged_out`, `challenge`, `client_not_found`, `browser_down` or `timeout`. Bookmark folders are an X Premium feature. An account without Premium gets `premium_required`.
+`health` loads the account's page and returns the signed-in screen name. Otherwise it returns a typed failure: `logged_out`, `challenge`, `client_not_found`, `browser_down` or `timeout`. Bookmark folders are an X Premium feature. When X refuses a folder request for that reason, the command returns `premium_required`.
+
+`lists` returns the lists the account owns or follows, and leaves out the lists X suggests.
+
+**Known limit: `settings`.** On 2026-11-26 X answered 404 (code 34) to `GET /1.1/account/settings.json`, and its own settings page got the same 404. So `settings` returns `x_error` until X serves that endpoint again or the page reads settings another way. `settings set` posts to the same path and has not been tried on a real account.
 
 ## How it is built
 
