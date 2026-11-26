@@ -6,9 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startMockX } from "./mock-x.ts";
 
-// X_CLI_TEST_PORT_BASE moves the three ports, so two checkouts can run the suite side by side.
+// X_CLI_TEST_PORT_BASE moves the ports, so two checkouts can run the suite side by side. A second harness in
+// the same run takes the next three with { offset: 3 }.
 const base = Number(process.env.X_CLI_TEST_PORT_BASE ?? 9355);
-export const ports = { mock: base, relay: base + 1, browser: base + 2 };
 
 const bin = fileURLToPath(new URL("../../bin/x-cli", import.meta.url));
 
@@ -17,7 +17,11 @@ export const leakyCt0 = "ct0-canary-5f1e2d";
 
 export type Run = { code: number; json: any; ms: number; stdout: string };
 
-export const startHarness = async (overrides: { timeouts?: Record<string, number> } = {}) => {
+export const startHarness = async (
+	overrides: { timeouts?: Record<string, number>; offset?: number; moliPath?: string } = {},
+) => {
+	const at = base + (overrides.offset ?? 0);
+	const ports = { mock: at, relay: at + 1, browser: at + 2 };
 	const mock = await startMockX(ports.mock);
 	const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "x-cli-test-"));
 	const timeouts = {
@@ -31,7 +35,11 @@ export const startHarness = async (overrides: { timeouts?: Record<string, number
 	const config = {
 		stateDir,
 		relay: { host: "127.0.0.1", port: ports.relay },
-		browser: { port: ports.browser, homeUrl: `${mock.url}/home` },
+		browser: {
+			port: ports.browser,
+			homeUrl: `${mock.url}/home`,
+			...(overrides.moliPath ? { moliPath: overrides.moliPath } : {}),
+		},
 		timeouts,
 		idleMs: 5 * 60_000,
 		pacing: { writeIntervalMs: 400 },
@@ -104,5 +112,5 @@ export const startHarness = async (overrides: { timeouts?: Record<string, number
 		fs.rmSync(stateDir, { recursive: true, force: true });
 	};
 
-	return { mock, run, relay, ours, stop, stateDir, timeouts };
+	return { mock, run, relay, ours, stop, stateDir, timeouts, ports };
 };
