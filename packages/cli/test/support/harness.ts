@@ -12,6 +12,9 @@ export const ports = { mock: base, relay: base + 1, browser: base + 2 };
 
 const bin = fileURLToPath(new URL("../../bin/x-cli", import.meta.url));
 
+// The ct0 of the leaky account: a value that must never reach output or logs
+export const leakyCt0 = "ct0-canary-5f1e2d";
+
 export type Run = { code: number; json: any; ms: number; stdout: string };
 
 export const startHarness = async (overrides: { timeouts?: Record<string, number> } = {}) => {
@@ -43,6 +46,7 @@ export const startHarness = async (overrides: { timeouts?: Record<string, number
 			locked: { cookieEnv: "XT_LOCKED" },
 			flaggy: { cookieEnv: "XT_PRO" },
 			basic: { cookieEnv: "XT_BASIC" },
+			leaky: { cookieEnv: "XT_LEAKY" },
 		},
 	};
 	const configFile = path.join(stateDir, "config.json");
@@ -61,6 +65,8 @@ export const startHarness = async (overrides: { timeouts?: Record<string, number
 		XT_LOCKED_CT0: "ct0",
 		XT_BASIC_AUTH_TOKEN: "basic",
 		XT_BASIC_CT0: "ct0",
+		XT_LEAKY_AUTH_TOKEN: "overloaded",
+		XT_LEAKY_CT0: leakyCt0,
 	};
 
 	const run = (...args: string[]) =>

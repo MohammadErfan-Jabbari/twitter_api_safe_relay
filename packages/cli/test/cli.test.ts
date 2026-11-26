@@ -1,6 +1,8 @@
 // The whole path offline: the x-cli command, the relay it starts, Moli, the bridge and a mock X page.
+import fs from "node:fs";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { startHarness } from "./support/harness.ts";
+import { leakyCt0, startHarness } from "./support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof startHarness>>;
 
@@ -173,6 +175,23 @@ describe("x-cli against a mock X page", () => {
 		expect(flagged.json.error).toMatchObject({ type: "flagged", code: 226 });
 		expect(next.json.error.type).toBe("rate_limited");
 		expect(h.mock.requests.length).toBe(before);
+	});
+
+	it("keeps the request's x-csrf-token out of a failure's output and the state logs", async () => {
+		const run = await h.run("lists", "--account", "leaky");
+
+		// The token did go out with the request, so the error object X's client threw carried it
+		expect(h.mock.requests.at(-1)).toMatchObject({ operationName: "ListsManagementPageTimeline", csrfToken: leakyCt0 });
+		expect(run.stdout).not.toContain(leakyCt0);
+		expect(run.code).toBe(10);
+		expect(run.json.error).toMatchObject({ type: "x_error", status: 503, codes: [] });
+		// The browser profile holds the cookie by design; everything else in the state directory is checked
+		const files = (fs.readdirSync(h.stateDir, { recursive: true }) as string[])
+			.filter((file) => !file.split(path.sep).includes("profile"))
+			.map((file) => path.join(h.stateDir, file))
+			.filter((file) => fs.statSync(file).isFile());
+		expect(files.some((file) => file.endsWith("relay.log"))).toBe(true);
+		expect(files.filter((file) => fs.readFileSync(file, "utf8").includes(leakyCt0))).toEqual([]);
 	});
 
 	it("says plainly when bookmark folders need Premium", async () => {

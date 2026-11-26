@@ -25,7 +25,9 @@ type Slot = {
 	stale: boolean;
 };
 
-type Outcome = { ok: true; value: any } | { ok: false; error: { message: string; status?: number; body?: unknown } };
+type Outcome =
+	| { ok: true; value: any }
+	| { ok: false; error: { message: string; status?: number; codes: number[]; data?: unknown } };
 
 const FLAGGED_CODES = new Set([226, 326, 344]);
 
@@ -399,31 +401,50 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 							try {
 								return { ok: true, value: await globalThis.elonmusk_114514_request({ property, query } as any) };
 							} catch (error: any) {
-								// X's ApiError keeps what it knows in its own properties, enumerable or not.
-								const plain = (value: any, depth: number): any => {
+								// X's ApiError keeps what it knows in its own properties, enumerable or not, and may hold
+								// the request with its x-csrf-token header. Only the error codes and the first GraphQL
+								// data object leave the page.
+								const codes: number[] = [];
+								let data: unknown;
+								const visit = (value: any, depth: number) => {
 									if (value === null || typeof value !== "object" || depth > 4) {
-										return typeof value === "function" ? undefined : value;
+										return;
 									}
-									const out: any = Array.isArray(value) ? [] : {};
 									for (const key of Object.getOwnPropertyNames(value)) {
-										if (key !== "stack") {
-											try {
-												out[key] = plain(value[key], depth + 1);
-											} catch {}
+										let child: any;
+										try {
+											child = value[key];
+										} catch {
+											continue;
 										}
+										if (key === "code" && Number.isInteger(child) && child > 0) {
+											codes.push(child);
+										}
+										if (
+											key === "data" &&
+											data === undefined &&
+											child &&
+											typeof child === "object" &&
+											!Array.isArray(child)
+										) {
+											data = child;
+										}
+										visit(child, depth + 1);
 									}
-									return out;
 								};
-								let body: unknown;
+								visit(error, 0);
 								try {
-									body = JSON.parse(JSON.stringify(plain(error, 0) ?? null));
-								} catch {}
+									data = JSON.parse(JSON.stringify(data ?? null)) ?? undefined;
+								} catch {
+									data = undefined;
+								}
 								return {
 									ok: false,
 									error: {
 										message: String(error?.message ?? error),
 										status: error?.status ?? error?.response?.status,
-										body,
+										codes,
+										data,
 									},
 								};
 							}
@@ -471,23 +492,24 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 			// Codes come from everything X sent, before any recovery below
 			const codes = outcome.ok
 				? errorCodesOf(outcome.value?.errors)
-				: [...errorCodesOf([raw?.errors, outcome.error.body]), ...messageCodesOf(outcome.error.message)];
+				: [...errorCodesOf(raw?.errors), ...outcome.error.codes, ...messageCodesOf(outcome.error.message)];
 			// X's client throws when a successful response also carries errors, such as the lists response's
 			// per-list banner errors (code 214). The data is still there, so use it.
 			if (!outcome.ok && (httpStatus === undefined || httpStatus < 400)) {
-				const recovered = dataIn(raw) ?? dataIn(outcome.error.body);
+				const recovered = dataIn(raw) ?? dataIn({ data: outcome.error.data });
 				if (recovered && Object.keys(recovered.data as object).length > 0) {
 					outcome = { ok: true, value: recovered };
 				}
 			}
-			const payload = outcome.ok ? outcome.value : (raw ?? outcome.error.body);
+			// A failure reports X's error codes, never the objects they came in
+			const reported = [...new Set(codes)];
 			const flagged = codes.find((code) => FLAGGED_CODES.has(code));
 			if (flagged !== undefined) {
 				await limiter.coolDown(clock.now() + config.pacing.flaggedCooldownMs, `X error ${flagged}`);
 				throw new XCliError("flagged", `X answered error ${flagged}; this account pauses for an hour`, {
 					code: flagged,
 					status: httpStatus,
-					errors: payload,
+					codes: reported,
 				});
 			}
 			const cooldownUntil = cooldownFromResponse(httpStatus, responseHeaders, clock.now(), config.pacing.cooldownMs);
@@ -520,7 +542,7 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 					// X no longer accepts this query ID; reload the page so the next call reads the current one.
 					current.stale = true;
 				}
-				throw new XCliError("x_error", `X refused ${name}: ${message}`, { status: httpStatus, errors: payload });
+				throw new XCliError("x_error", `X refused ${name}: ${message}`, { status: httpStatus, codes: reported });
 			}
 			return operation.extract((outcome as { value: unknown }).value, args);
 		});
