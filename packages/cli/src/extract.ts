@@ -22,25 +22,27 @@ export const findInstructions = (value: Json, depth = 0): Json[] | undefined => 
 	return undefined;
 };
 
-// Every itemContent in the timeline (single items and the items of modules), plus the bottom cursor
+// Every itemContent in the timeline (single items and the items of modules) with its entry's id, plus the
+// bottom cursor
 const timelineItems = (response: Json) => {
 	const instructions = findInstructions(response?.data) ?? [];
-	const contents: Json[] = [];
+	const contents: { itemContent: Json; entryId: string }[] = [];
 	let cursor: string | undefined;
 	const visitEntry = (entry: Json) => {
 		const content = entry?.content ?? entry?.item;
 		if (!content) {
 			return;
 		}
+		const entryId = String(entry?.entryId ?? "");
 		if (content.cursorType === "Bottom" || content.itemContent?.cursorType === "Bottom") {
 			cursor = content.value ?? content.itemContent?.value;
 		}
 		if (content.itemContent) {
-			contents.push(content.itemContent);
+			contents.push({ itemContent: content.itemContent, entryId });
 		}
 		for (const item of content.items ?? []) {
 			if (item?.item?.itemContent) {
-				contents.push(item.item.itemContent);
+				contents.push({ itemContent: item.item.itemContent, entryId });
 			}
 		}
 	};
@@ -115,18 +117,21 @@ const compact = <T>(values: (T | undefined)[]) => values.filter((value): value i
 
 export const tweetPage = (response: Json): Page<Tweet> => {
 	const { contents, cursor } = timelineItems(response);
-	return { items: compact(contents.map((c) => tweet(c.tweet_results?.result))), cursor };
+	return { items: compact(contents.map((c) => tweet(c.itemContent.tweet_results?.result))), cursor };
 };
 
 export const userPage = (response: Json): Page<NonNullable<ReturnType<typeof user>>> => {
 	const { contents, cursor } = timelineItems(response);
-	return { items: compact(contents.map((c) => user(c.user_results?.result))), cursor };
+	return { items: compact(contents.map((c) => user(c.itemContent.user_results?.result))), cursor };
 };
 
 export const listPage = (response: Json): Page<NonNullable<ReturnType<typeof list>>> => {
 	const { contents, cursor } = timelineItems(response);
 	const seen = new Set<string>();
-	const items = compact(contents.map((c) => list(c.list))).filter((l) => !seen.has(l.id) && seen.add(l.id));
+	// X adds suggested lists in a "list-to-follow" module (seen 2026-11-26); they are not his.
+	const items = compact(
+		contents.filter((c) => !c.entryId.startsWith("list-to-follow")).map((c) => list(c.itemContent.list)),
+	).filter((l) => !seen.has(l.id) && seen.add(l.id));
 	return { items, cursor };
 };
 
