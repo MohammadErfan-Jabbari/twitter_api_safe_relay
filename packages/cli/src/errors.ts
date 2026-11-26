@@ -39,7 +39,8 @@ export class XCliError extends Error {
 	}
 }
 
-export const isErrorType = (value: unknown): value is ErrorType => typeof value === "string" && value in errorTypes;
+export const isErrorType = (value: unknown): value is ErrorType =>
+	typeof value === "string" && Object.hasOwn(errorTypes, value);
 
 export const exitCodeOf = (type: ErrorType) => errorTypes[type];
 

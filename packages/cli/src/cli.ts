@@ -201,7 +201,7 @@ const main = async (argv: string[]) => {
 	if (command === "stop") {
 		return stopRelay(config);
 	}
-	const run = commands[command];
+	const run = Object.hasOwn(commands, command) ? commands[command] : undefined;
 	if (!run) {
 		throw new XCliError("usage", `Unknown command: ${command}\n\n${usage}`);
 	}
