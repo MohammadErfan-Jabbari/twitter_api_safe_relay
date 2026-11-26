@@ -47,6 +47,14 @@ describe("x-cli against a mock X page", () => {
 		expect(h.mock.requests.length).toBe(before);
 	});
 
+	it("treats a name an object inherits, such as constructor, as an unknown command", async () => {
+		const run = await h.run("constructor", "--account", "personal");
+
+		expect(run.code).toBe(2);
+		expect(run.json.error.type).toBe("usage");
+		expect(run.stdout).not.toContain(h.stateDir);
+	});
+
 	it("reads query IDs and feature switches from the page's modules", async () => {
 		const run = await h.run("lists", "--account", "personal");
 
