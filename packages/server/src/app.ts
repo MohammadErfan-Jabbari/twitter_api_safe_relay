@@ -31,7 +31,11 @@ export const createApp = async (options: AppOptions[]) => {
 		const profileName = c.req.header("x-profile-name");
 		const profileNames = options.map((o) => o.name);
 
+		// With one account a missing header is unambiguous. With several, a random pick could act on the wrong account.
 		if (profileName === undefined) {
+			if (new Set(profileNames).size > 1) {
+				return c.json({ error: "Missing x-profile-name header", available: profileNames }, 400);
+			}
 			const { name, getClient } = randomChoice(options);
 			return handler(await getClient(), name);
 		}
