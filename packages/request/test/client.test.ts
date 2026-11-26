@@ -2,6 +2,9 @@ import { createIntegration } from "twitter-api-safe-test-utils";
 import { createHookManager, createTwitterBrowser } from "twitter-api-safe-request";
 import { afterEach, describe, expect, it } from "vitest";
 
+// The persistent-profile test drives the real x.com and needs a signed-in session (X_COOKIE_FILE, set in CI).
+const itLive = it.skipIf(!process.env.X_COOKIE_FILE);
+
 describe("someFunction", () => {
 	const integration = createIntegration();
 
@@ -40,7 +43,7 @@ describe("someFunction", () => {
 		expect(calls).toEqual(["low"]);
 	});
 
-	it("runs graphQLFullResponse through a persistent X profile", async () => {
+	itLive("runs graphQLFullResponse through a persistent X profile", async () => {
 		const context = await integration.browser();
 
 		const page = await context.newPage();
