@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the TypeScript source directly. The development condition resolves workspace packages to their src.
+here=$(dirname "$(readlink -f "$0")")
+exec node --conditions=development --no-warnings=ExperimentalWarning "$here/../src/cli.ts" "$@"
