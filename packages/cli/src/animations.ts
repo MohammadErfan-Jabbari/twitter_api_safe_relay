@@ -111,8 +111,10 @@ export const installAnimationSampling = () => {
 	};
 
 	// The replacements are proxies of the natives, so their name, length, own properties and descriptors stay the
-	// natives' own, and Function.prototype.toString prints each as the native it replaces, as stealth patches do.
-	// A page that checks them, as X's scripts may, sees the browser's functions.
+	// natives' own, and the page's Function.prototype.toString prints each as the native it replaces, as stealth
+	// patches do. Two differences remain, and a proxy cannot remove them: another frame's own toString, which this
+	// does not replace, prints each as `function () { [native code] }` without its name, and a stack trace taken
+	// inside one has two more frames than the native's.
 	const disguised = new WeakMap<object, object>();
 	const replace = (holder: any, key: string, apply: (native: any, self: any, args: any[]) => unknown) => {
 		const native = holder[key];
