@@ -82,6 +82,22 @@ describe("x-cli against a mock X page", () => {
 		expect(whoami.json).toMatchObject({ account: "personal", screenName: "mock_personal", id: "1001" });
 	});
 
+	it("proves with health that X accepts the page's request signatures", async () => {
+		const good = await h.run("health", "--account", "pro");
+		const before = h.mock.requests.length;
+		const bad = await h.run("health", "--account", "unsigned");
+
+		expect(good.code).toBe(0);
+		expect(good.json).toMatchObject({ account: "pro", screenName: "mock_pro", signature: "accepted" });
+		expect(bad.code).toBe(6);
+		expect(bad.json.error).toMatchObject({ type: "signature_rejected", status: 404, codes: [34] });
+		// After Viewer, health reads the settings, which X refuses when the signature is wrong
+		expect(h.mock.requests.slice(before).map((r) => r.operationName ?? `${r.method} ${r.path}`)).toEqual([
+			"Viewer",
+			"GET /i/api/1.1/account/settings.json",
+		]);
+	});
+
 	it("refuses a session signed in as another account after the Viewer call alone", async () => {
 		const before = h.mock.requests.length;
 

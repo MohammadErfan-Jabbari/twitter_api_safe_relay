@@ -14,6 +14,7 @@ export const errorTypes = {
 	wrong_account: 5, // the session belongs to another screen name than configured
 	client_not_found: 5, // the page loaded but X's API client never appeared
 	operation_not_on_page: 6, // the page holds no definition for this GraphQL operation
+	signature_rejected: 6, // X refused the page's x-client-transaction-id (404 code 34), so its signer is wrong
 	rate_limited: 7,
 	flagged: 7, // X answered 226, 326 or 344: automation suspected, account locked, or daily limit
 	premium_required: 8,

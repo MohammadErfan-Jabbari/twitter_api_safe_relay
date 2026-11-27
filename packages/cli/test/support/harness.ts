@@ -55,6 +55,7 @@ export const startHarness = async (
 			flaggy: { cookieEnv: "XT_PRO" },
 			basic: { cookieEnv: "XT_BASIC" },
 			leaky: { cookieEnv: "XT_LEAKY" },
+			unsigned: { cookieEnv: "XT_UNSIGNED" },
 		},
 	};
 	const configFile = path.join(stateDir, "config.json");
@@ -75,6 +76,8 @@ export const startHarness = async (
 		XT_BASIC_CT0: "ct0",
 		XT_LEAKY_AUTH_TOKEN: "overloaded",
 		XT_LEAKY_CT0: leakyCt0,
+		XT_UNSIGNED_AUTH_TOKEN: "stale",
+		XT_UNSIGNED_CT0: "ct0",
 	};
 
 	const run = (...args: string[]) =>

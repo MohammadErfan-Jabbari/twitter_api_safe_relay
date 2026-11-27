@@ -8,7 +8,7 @@ x-cli home --account pro -n 20
 x-cli list create reading --account pro        # private unless --public
 ```
 
-Every command except `serve` and `stop` needs `--account`. There is no default account. Output is JSON on stdout. A failure prints `{"error":{"type":…,"message":…}}` and exits non-zero. `src/errors.ts` lists the types.
+Every command except `serve` and `stop` needs `--account`. There is no default account. Output is JSON on stdout. A failure prints `{"error":{"type":…,"message":…}}` and exits non-zero. The types are under [Errors](#errors).
 
 ## Commands
 
@@ -21,7 +21,7 @@ Every command except `serve` and `stop` needs `--account`. There is no default a
 | `following [--user <name>] [-n N]` | `folder add\|remove <folder-id> <tweet-id>` |
 | `settings` | `settings set <field>=<value> ...` |
 
-`health` loads the account's page and returns the signed-in screen name. Otherwise it returns a typed failure: `logged_out`, `challenge`, `client_not_found`, `browser_down` or `timeout`. Bookmark folders are an X Premium feature. When X refuses a folder request for that reason, the command returns `premium_required`.
+`health` loads the account's page, returns the signed-in screen name, and reads the account's settings to prove that X accepts the page's request signature (`"signature": "accepted"`). Otherwise it returns a typed failure: `logged_out`, `challenge`, `client_not_found`, `signature_rejected`, `browser_down` or `timeout`. Bookmark folders are an X Premium feature. When X refuses a folder request for that reason, the command returns `premium_required`.
 
 `lists` returns the lists the account owns or follows, and leaves out the lists X suggests.
 
@@ -40,6 +40,34 @@ Every command except `serve` and `stop` needs `--account`. There is no default a
 | `lang` | a language code such as `en` or `pt-br` (a read shows it as `language`) | no |
 
 X's own settings pages change the first six through the same request. X's direct message settings page reads its settings through GraphQL, so X may stop taking `allow_dms_from` and `allow_dm_groups_from` here. `allow_contributor_request` is left out, because X asks for the account's password to change it (error 114).
+
+## Errors
+
+A caller branches on the error's `type`. The exit code groups the types.
+
+| Type | Exit code | Meaning |
+|---|---|---|
+| `usage` | 2 | Bad command line, including a missing `--account` |
+| `missing_account` | 2 | A relay request without `x-profile-name` |
+| `unknown_account` | 2 | The account is not in the configuration |
+| `unknown_operation` | 2 | The operation is not in the registry, so it cannot be sent |
+| `invalid_arguments` | 2 | The operation does not take these arguments, or X does not take this value |
+| `forbidden_host` | 2 | A relay request whose Host is not 127.0.0.1 or localhost on the relay's port |
+| `relay_unreachable` | 3 | The relay did not start or answer |
+| `browser_down` | 3 | Moli did not start, or went away during a request |
+| `timeout` | 4 | A step passed its deadline; `step` names it |
+| `logged_out` | 5 | X shows a login page: the session cookies are missing or expired |
+| `challenge` | 5 | X shows a challenge, lock or suspension page instead of the app |
+| `wrong_account` | 5 | The session belongs to another screen name than configured |
+| `client_not_found` | 5 | The page loaded but X's API client never appeared |
+| `operation_not_on_page` | 6 | The page holds no definition for this GraphQL operation |
+| `signature_rejected` | 6 | X refused the page's `x-client-transaction-id` with 404 code 34, so the request signer is wrong |
+| `rate_limited` | 7 | X rate-limited the account; `retryAt` says when to try again |
+| `flagged` | 7 | X answered 226, 326 or 344 (automation suspected, account locked, or daily limit); the account rests for an hour |
+| `premium_required` | 8 | Bookmark folders need X Premium on this account |
+| `not_found` | 9 | No such account |
+| `x_error` | 10 | X answered with an error this tool has no name for; `status` and `codes` say what X sent |
+| `internal` | 1 | A bug in x-cli |
 
 ## How it is built
 
