@@ -325,11 +325,13 @@ describe("x-cli against a mock X page", () => {
 		const set = await h.run("settings", "set", "protected=true", "allow_dm_groups_from=all", "--account", "pro");
 		const read = await h.run("settings", "--account", "pro");
 		const bad = await h.run("settings", "set", "allow_dms_from=everyone", "--account", "pro");
+		const gated = await h.run("settings", "set", "allow_contributor_request=none", "--account", "pro");
 
 		expect(set.code).toBe(0);
 		expect(set.json).toMatchObject({ screen_name: "mock_pro", protected: true, allow_dm_groups_from: "all" });
 		expect(read.json).toMatchObject({ protected: true, allow_dm_groups_from: "all", allow_dms_from: "following" });
 		expect(bad.json.error.type).toBe("invalid_arguments");
+		expect(gated.json.error.type).toBe("invalid_arguments");
 		const posts = h.mock.requests.filter((r) => r.method === "POST" && r.path === "/i/api/1.1/account/settings.json");
 		expect(posts).toHaveLength(1);
 	});
