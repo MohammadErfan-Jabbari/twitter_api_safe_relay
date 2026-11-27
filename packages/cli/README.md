@@ -25,7 +25,21 @@ Every command except `serve` and `stop` needs `--account`. There is no default a
 
 `lists` returns the lists the account owns or follows, and leaves out the lists X suggests.
 
-**Known limit: `settings`.** On 2026-11-26 X answered 404 (code 34) to `GET /1.1/account/settings.json`, and its own settings page got the same 404. So `settings` returns `x_error` until X serves that endpoint again or the page reads settings another way. `settings set` posts to the same path and has not been tried on a real account.
+**Settings.** `settings` returns the account's settings as X's settings pages read them. `settings set` changes these fields:
+
+| Field | Values | Checked on a real account |
+|---|---|---|
+| `protected` | `true`, `false` | no |
+| `discoverable_by_email` | `true`, `false` | no |
+| `discoverable_by_mobile_phone` | `true`, `false` | yes, set to its current value on 2026-11-27 |
+| `display_sensitive_media` | `true`, `false` | no |
+| `nsfw_user` | `true`, `false` | no |
+| `allow_media_tagging` | `all`, `following`, `none` | no |
+| `allow_dms_from` | `all`, `following`, `verified` | no |
+| `allow_dm_groups_from` | `all`, `following` | no |
+| `lang` | a language code such as `en` or `pt-br` (a read shows it as `language`) | no |
+
+X's own settings pages change the first six through the same request. X's direct message settings page reads its settings through GraphQL, so X may stop taking `allow_dms_from` and `allow_dm_groups_from` here. `allow_contributor_request` is left out, because X asks for the account's password to change it (error 114).
 
 ## How it is built
 
@@ -34,6 +48,7 @@ Every command except `serve` and `stop` needs `--account`. There is no default a
 - **Relay.** `x-cli serve` is a local HTTP server on 127.0.0.1 that owns the browser. It refuses any request whose Host header is not 127.0.0.1 or localhost on its port, so a web page that rebinds its domain to 127.0.0.1 cannot call it. The command starts it when it is not running. It runs one account's Moli browser at a time and serves one request at a time. After 3 minutes without a request, it stops the browser and exits, because X's page runs its own timers while it is open. x-cli itself runs nothing on a timer against X.
 - **Pacing.** `src/pacing.ts` ports the request limiter of `transitive-bullshit/bird`: 100 ms between requests, 5 s between searches, and a 15-minute cooldown after a 429. Writes wait 10 s between each other. An account that X flags with error 226, 326 or 344 rests for an hour. The state lives in one file per account, under a lock, so separate processes share it.
 - **Deadlines.** Browser start, page load, client startup and every request have a deadline, so a dead or signed-out page gives a typed error instead of a hang.
+- **Signed requests.** X's page signs each request with an `x-client-transaction-id` header that it computes from a paused CSS animation. Moli does not apply animations to the computed style the page reads, so the page computed a wrong value, and X answered 404 (code 34) to the account settings request and to its own settings page. `src/animations.ts` computes those animation values in the page before X's scripts load. Every request now carries the value Chrome would compute.
 
 ## Configuration
 

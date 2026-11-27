@@ -11,6 +11,7 @@ export type RestSpec = {
 	path: string;
 	// Query parameters, as X's web app sends them
 	params?: Record<string, string>;
+	// The POST body's fields; X's client form-encodes them
 	form?: (args: any) => Record<string, string>;
 };
 
@@ -39,7 +40,8 @@ const withCursor = (args: { cursor?: string }) => (args.cursor ? { cursor: args.
 
 const dataOf = (response: any) => response?.data ?? response;
 
-// The fields X's account settings endpoint takes, with the values it accepts
+// The fields `settings set` changes, with the values X accepts. allow_contributor_request is left out: X answers
+// 400 code 114 (InvalidCurrentPassword) to a change of it, even to its current value (2026-11-27)
 export const settingsFields = {
 	protected: z.boolean(),
 	discoverable_by_email: z.boolean(),
@@ -49,7 +51,6 @@ export const settingsFields = {
 	allow_media_tagging: z.enum(["all", "following", "none"]),
 	allow_dms_from: z.enum(["all", "following", "verified"]),
 	allow_dm_groups_from: z.enum(["all", "following"]),
-	allow_contributor_request: z.enum(["all", "following", "none"]),
 	lang: z.string().regex(/^[a-z]{2}(-[a-z]{2})?$/),
 } as const;
 
@@ -100,7 +101,17 @@ export const registry = {
 			kind: "rest",
 			method: "POST",
 			path: "/1.1/account/settings.json",
-			form: (args) => Object.fromEntries(Object.entries(args).map(([key, value]) => [key, String(value)])),
+			// X's settings pages send these flags with every change (main.js, 2026-11-27), so the answer carries the
+			// same fields a read does
+			form: (args) => ({
+				include_mention_filter: "true",
+				include_nsfw_user_flag: "true",
+				include_nsfw_admin_flag: "true",
+				include_ranked_timeline: "true",
+				include_alt_text_compose: "true",
+				include_ext_dm_av_call_settings: "true",
+				...Object.fromEntries(Object.entries(args).map(([key, value]) => [key, String(value)])),
+			}),
 		},
 		extract: (response) => response,
 	}),

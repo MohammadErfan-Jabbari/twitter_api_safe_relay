@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { type Browser, chromium, type Page, type Response } from "playwright";
 import { createTwitterBrowser, type TwitterApiProfileClient } from "twitter-api-safe-request";
+import { installAnimationSampling } from "./animations.ts";
 import { accountDir, type Config } from "./config.ts";
 import { XCliError } from "./errors.ts";
 import { AccountLimiter, type Clock, cooldownFromResponse, realClock } from "./pacing.ts";
@@ -259,6 +260,7 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 				await context.addCookies(cookies);
 			}
 			const page = context.pages()[0] ?? (await context.newPage());
+			await page.addInitScript(installAnimationSampling);
 			const client = createTwitterBrowser(page);
 			await client.inject();
 			const homeUrl = homeUrlOf(account);
@@ -370,13 +372,14 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 			property = "dispatch";
 			path = spec.path;
 			const form = spec.form?.(args);
+			// X's client form-encodes a POST's data object itself, as the page's own calls rely on
 			query = [
 				{
 					method: spec.method,
 					path,
-					headers: form ? { "content-type": "application/x-www-form-urlencoded" } : {},
+					headers: {},
 					...(spec.params ? { params: spec.params } : {}),
-					...(form ? { data: new URLSearchParams(form).toString() } : {}),
+					...(form ? { data: form } : {}),
 				},
 			];
 		}
