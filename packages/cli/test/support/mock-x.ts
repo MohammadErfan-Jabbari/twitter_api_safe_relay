@@ -4,6 +4,7 @@
 //   no auth_token -> redirect to the login page    "challenge" -> redirect to /account/access
 //   "hang"        -> API requests never answer      "basic"     -> bookmark folders answer 403 (no Premium)
 //   "overloaded"  -> API requests answer 503 with a page that is not JSON
+//   "stale"       -> the page signs with a stale key, so every signature is wrong
 // The page also reports to /probe how the functions x-cli replaces look to its own scripts.
 // Like x.com, the page signs each request with an x-client-transaction-id read from a paused animation, and the
 // account settings endpoint answers 404 code 34 when the signature is wrong.
@@ -101,7 +102,7 @@ const signer = `function (module) {
 	var style = getComputedStyle(div);
 	var id = (${signatureOf})({ color: style.color, transform: style.transform });
 	div.remove();
-	module.exports = { id: id };
+	module.exports = { id: self.mockStaleKey ? id + "-stale" : id };
 }`;
 
 const client = `function (module, exports, require) {
@@ -475,8 +476,11 @@ export const startMockX = async (port: number) => {
 				response.writeHead(302, { location: "/account/access" });
 				return response.end();
 			}
+			const stale = authToken === "stale" ? "<script>self.mockStaleKey = true</script>" : "";
 			response.writeHead(200, { "content-type": "text/html" });
-			return response.end(page(`<script>${probe}</script><script>${runtime}</script><script src="/main.js"></script>`));
+			return response.end(
+				page(`${stale}<script>${probe}</script><script>${runtime}</script><script src="/main.js"></script>`),
+			);
 		}
 		if (url.pathname === "/dead") {
 			// Signed in, but the app never boots: no webpack runtime, no client

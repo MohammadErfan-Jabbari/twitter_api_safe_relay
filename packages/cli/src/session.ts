@@ -541,6 +541,14 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 						message,
 					});
 				}
+				// The settings endpoint always exists, so X's "page does not exist" there means it refused the request's
+				// x-client-transaction-id, which the page computes from a paused animation (src/animations.ts)
+				if (spec.kind === "rest" && httpStatus === 404 && codes.includes(34)) {
+					throw new XCliError("signature_rejected", `X refused the page's request signature on ${name}`, {
+						status: httpStatus,
+						codes: reported,
+					});
+				}
 				if (spec.kind === "graphql" && httpStatus === 404) {
 					// X no longer accepts this query ID; reload the page so the next call reads the current one.
 					current.stale = true;
@@ -562,16 +570,19 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 			return send(current, name, operation, args);
 		});
 
-	// Proves sign-in: the page is X's app and X's settings name the signed-in screen name.
+	// Proves sign-in and signing: the page is X's app, Viewer names the signed-in screen name, and X accepts the
+	// page's request signature on the settings read, which it refuses with 404 code 34 when the signature is wrong.
 	const health = (account: string) =>
 		serial(async () => {
 			const started = Date.now();
 			const current = await ensureSlot(account);
 			const fresh = Date.now() - current.verifiedAt < 5_000;
 			const screenName = fresh ? current.screenName : await readScreenName(current);
+			await send(current, "account.settings", findOperation("account.settings")!, {});
 			return {
 				account,
 				screenName,
+				signature: "accepted",
 				page: current.page.url(),
 				operationsOnPage: current.operations.size,
 				ms: Date.now() - started,

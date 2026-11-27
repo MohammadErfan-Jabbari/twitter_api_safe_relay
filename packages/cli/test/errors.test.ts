@@ -1,5 +1,6 @@
+import fs from "node:fs";
 import { describe, expect, it } from "vitest";
-import { isErrorType } from "../src/errors.ts";
+import { errorTypes, isErrorType } from "../src/errors.ts";
 
 describe("isErrorType", () => {
 	it("accepts the listed types and nothing an object inherits", () => {
@@ -10,5 +11,14 @@ describe("isErrorType", () => {
 			false,
 			false,
 		]);
+	});
+});
+
+describe("the README's error table", () => {
+	it("lists every error type with its exit code", () => {
+		const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+		const rows = Array.from(readme.matchAll(/^\| `([a-z_]+)` \| (\d+) \|/gm), (match) => [match[1], Number(match[2])]);
+
+		expect(Object.fromEntries(rows)).toEqual(errorTypes);
 	});
 });
