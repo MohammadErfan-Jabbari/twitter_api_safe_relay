@@ -342,7 +342,19 @@ describe("x-cli against a mock X page", () => {
 		expect(bad.json.error.type).toBe("invalid_arguments");
 		expect(gated.json.error.type).toBe("invalid_arguments");
 		const posts = h.mock.requests.filter((r) => r.method === "POST" && r.path === "/i/api/1.1/account/settings.json");
-		expect(posts).toHaveLength(1);
+		// X's settings pages send these include_* flags with every change, so the answer carries every field a read does
+		expect(posts.map((post) => post.form)).toEqual([
+			{
+				include_mention_filter: "true",
+				include_nsfw_user_flag: "true",
+				include_nsfw_admin_flag: "true",
+				include_ranked_timeline: "true",
+				include_alt_text_compose: "true",
+				include_ext_dm_av_call_settings: "true",
+				protected: "true",
+				allow_dm_groups_from: "all",
+			},
+		]);
 	});
 
 	it("says plainly when bookmark folders need Premium", async () => {
