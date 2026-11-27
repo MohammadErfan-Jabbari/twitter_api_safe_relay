@@ -343,6 +343,7 @@ describe("x-cli against a mock X page", () => {
 
 		expect(seen.freshTouched).toBe(false);
 		expect(seen.fresh.animate.toString).toBe("function animate() { [native code] }");
+		expect(seen.page.computedStyle).toEqual({ display: "block", declaration: true });
 		expect(seen.page).toEqual(seen.fresh);
 	});
 
