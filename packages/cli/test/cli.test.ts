@@ -321,6 +321,15 @@ describe("x-cli against a mock X page", () => {
 		expect(run.json).toMatchObject({ screen_name: "mock_pro", protected: false, allow_dms_from: "following" });
 	});
 
+	it("leaves the functions it replaces in the page indistinguishable from the browser's own", async () => {
+		await h.run("health", "--account", "personal");
+		const seen = h.mock.probes.at(-1)!;
+
+		expect(seen.freshTouched).toBe(false);
+		expect(seen.fresh.animate.toString).toBe("function animate() { [native code] }");
+		expect(seen.page).toEqual(seen.fresh);
+	});
+
 	it("changes settings with settings set, reads the change back, and refuses a value X does not take", async () => {
 		const set = await h.run("settings", "set", "protected=true", "allow_dm_groups_from=all", "--account", "pro");
 		const read = await h.run("settings", "--account", "pro");
