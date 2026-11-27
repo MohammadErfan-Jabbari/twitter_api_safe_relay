@@ -337,7 +337,7 @@ describe("x-cli against a mock X page", () => {
 		expect(run.json).toMatchObject({ screen_name: "mock_pro", protected: false, allow_dms_from: "following" });
 	});
 
-	it("leaves the functions it replaces in the page indistinguishable from the browser's own", async () => {
+	it("leaves the functions it replaces looking like the browser's own to the page's checks", async () => {
 		await h.run("health", "--account", "personal");
 		const seen = h.mock.probes.at(-1)!;
 
