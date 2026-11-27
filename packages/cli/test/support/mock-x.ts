@@ -153,8 +153,9 @@ const client = `function (module, exports, require) {
 }`;
 
 // What a page script can learn about each function x-cli replaces: its name, length, source text by every route,
-// own properties, whether it constructs, and the descriptor of the property that holds it. The same facts from a
-// fresh frame's window, which x-cli leaves alone, show what the browser's own functions look like.
+// own properties, whether it constructs, and the descriptor of the property that holds it, plus the computed style of
+// an element nothing animates. The same facts from a fresh frame's window, which x-cli leaves alone, show what the
+// browser's own functions look like.
 const probe = `(function () {
 	var describe = function (window) {
 		var facts = {};
@@ -174,6 +175,9 @@ const probe = `(function () {
 				constructs: constructs
 			};
 		});
+		// The replaced getComputedStyle still answers for an element nothing animates
+		var style = window.getComputedStyle(window.document.body);
+		facts.computedStyle = { display: style && style.display, declaration: style instanceof window.CSSStyleDeclaration };
 		return facts;
 	};
 	var frame = document.createElement("iframe");
