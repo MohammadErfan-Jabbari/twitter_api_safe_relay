@@ -314,15 +314,24 @@ describe("x-cli against a mock X page", () => {
 		}
 	});
 
-	it("changes settings with settings set and refuses a value X does not take", async () => {
-		const set = await h.run("settings", "set", "protected=true", "allow_dms_from=following", "--account", "personal");
-		const bad = await h.run("settings", "set", "allow_dms_from=everyone", "--account", "personal");
+	it("reads the account's settings through X's signed request", async () => {
+		const run = await h.run("settings", "--account", "pro");
+
+		expect(run.code).toBe(0);
+		expect(run.json).toMatchObject({ screen_name: "mock_pro", protected: false, allow_dms_from: "following" });
+	});
+
+	it("changes settings with settings set, reads the change back, and refuses a value X does not take", async () => {
+		const set = await h.run("settings", "set", "protected=true", "allow_dm_groups_from=all", "--account", "pro");
+		const read = await h.run("settings", "--account", "pro");
+		const bad = await h.run("settings", "set", "allow_dms_from=everyone", "--account", "pro");
 
 		expect(set.code).toBe(0);
-		expect(set.json).toMatchObject({ screen_name: "mock_personal", protected: "true", allow_dms_from: "following" });
+		expect(set.json).toMatchObject({ screen_name: "mock_pro", protected: true, allow_dm_groups_from: "all" });
+		expect(read.json).toMatchObject({ protected: true, allow_dm_groups_from: "all", allow_dms_from: "following" });
 		expect(bad.json.error.type).toBe("invalid_arguments");
 		const posts = h.mock.requests.filter((r) => r.method === "POST" && r.path === "/i/api/1.1/account/settings.json");
-		expect(posts.map((r) => r.form)).toEqual([{ protected: "true", allow_dms_from: "following" }]);
+		expect(posts).toHaveLength(1);
 	});
 
 	it("says plainly when bookmark folders need Premium", async () => {

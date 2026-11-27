@@ -4,6 +4,8 @@
 //   no auth_token -> redirect to the login page    "challenge" -> redirect to /account/access
 //   "hang"        -> API requests never answer      "basic"     -> bookmark folders answer 403 (no Premium)
 //   "overloaded"  -> API requests answer 503 with a page that is not JSON
+// Like x.com, the page signs each request with an x-client-transaction-id read from a paused animation, and the
+// account settings endpoint answers 404 code 34 when the signature is wrong.
 import crypto from "node:crypto";
 import http from "node:http";
 
@@ -72,16 +74,80 @@ const runtime = `
 	chunks.push = jsonp.bind(null, chunks.push.bind(chunks));
 })();`;
 
+// The animation X's ondemand.s module samples to sign requests (values seen on x.com on 2026-11-27): a div's color
+// and rotation, eased by a cubic-bezier, paused 1500 ms into 4096 ms.
+const signing = {
+	from: [0x2a, 0x03, 0xe0],
+	to: [0xe2, 0x0f, 0x59],
+	degrees: 167,
+	curve: [0.71, 0.51, 0.38, -0.8] as const,
+	time: 1500,
+	duration: 4096,
+};
+
+// What Chrome reads back from that animation, worked out here rather than in the page: the color rounded to whole
+// channels and the rotation matrix's first four values to two places, as the signature uses them.
+const expectedSignature = () => {
+	const [x1, y1, x2, y2] = signing.curve;
+	const at = (a: number, b: number, t: number) => 3 * a * (1 - t) ** 2 * t + 3 * b * (1 - t) * t ** 2 + t ** 3;
+	const progress = signing.time / signing.duration;
+	let low = 0;
+	let high = 1;
+	let t = 0.5;
+	while (high - low > 1e-12) {
+		t = (low + high) / 2;
+		if (at(x1, x2, t) < progress) {
+			low = t;
+		} else {
+			high = t;
+		}
+	}
+	const eased = at(y1, y2, t);
+	const color = signing.from.map((from, i) =>
+		Math.round(Math.min(255, Math.max(0, from + (signing.to[i]! - from) * eased))),
+	);
+	const radians = (signing.degrees * eased * Math.PI) / 180;
+	const matrix = [Math.cos(radians), Math.sin(radians), -Math.sin(radians), Math.cos(radians)];
+	return `${color.join(",")}|${matrix.map((value) => Math.abs(value).toFixed(2)).join(",")}`;
+};
+
+// Like ondemand.s: animate a div, pause it, and read the computed style. A browser that ignores the animation reads
+// the div's own color and no transform, and so signs every request wrongly.
+const signer = `function (module) {
+	var div = document.createElement("div");
+	document.body.appendChild(div);
+	var animation = div.animate({
+		color: ["#${signing.from.map((c) => c.toString(16).padStart(2, "0")).join("")}", "#${signing.to.map((c) => c.toString(16).padStart(2, "0")).join("")}"],
+		transform: ["rotate(0deg)", "rotate(${signing.degrees}deg)"],
+		easing: "cubic-bezier(${signing.curve.join(",")})"
+	}, ${signing.duration});
+	animation.pause();
+	animation.currentTime = ${signing.time};
+	var style = getComputedStyle(div);
+	var color = (style.color.match(/[\\d.]+/g) || []).slice(0, 3).map(function (v) { return Math.round(Number(v)); });
+	var matrix = style.transform === "none" ? [1, 0, 0, 1] : (style.transform.match(/-?[\\d.]+(?:e-?\\d+)?/g) || []).slice(0, 4).map(Number);
+	div.remove();
+	module.exports = { id: color.join(",") + "|" + matrix.map(function (v) { return Math.abs(v).toFixed(2); }).join(",") };
+}`;
+
 const client = `function (module, exports, require) {
+	var transactionId = require(160).id;
 	class Client {
 		dispatch(request) {
 			var url = "/i/api" + request.path;
 			if (request.params) url += "?" + new URLSearchParams(request.params);
 			// Like X's client: the ct0 cookie goes out as the x-csrf-token header
 			var ct0 = (document.cookie.match(/(?:^|; )ct0=([^;]*)/) || [])[1];
-			var headers = Object.assign({}, request.headers || {}, ct0 ? { "x-csrf-token": ct0 } : {});
+			var headers = Object.assign({ "x-client-transaction-id": transactionId }, request.headers || {}, ct0 ? { "x-csrf-token": ct0 } : {});
+			// Like X's client: a POST is form-encoded unless it says otherwise, and the form is built from the data
+			// object's entries, so data that is already a string arrives as one field per character
+			if ((request.method === "POST" || request.method === "PUT") && headers["content-type"] === undefined) headers["content-type"] = "application/x-www-form-urlencoded";
 			var init = { method: request.method, headers: headers };
-			if (request.data !== undefined) init.body = typeof request.data === "string" ? request.data : JSON.stringify(request.data);
+			if (request.data !== undefined) {
+				init.body = headers["content-type"] === "application/json"
+					? JSON.stringify(request.data)
+					: Object.entries(request.data).filter(function (entry) { return entry[1] != null; }).map(function (entry) { return encodeURIComponent(entry[0]) + "=" + encodeURIComponent(String(entry[1])); }).join("&");
+			}
 			return fetch(url, init).then(function (response) {
 				return response.text().then(function (text) {
 					var body;
@@ -183,7 +249,9 @@ export const startMockX = async (port: number) => {
 	);
 	// A module that leaves module.exports unset, loaded before the client is built
 	modules.push("150:function(e){e.exports=void 0}");
+	modules.push(`160:${signer}`);
 	modules.push(`200:${client}`);
+	const signature = expectedSignature();
 	const bundle = `(self.webpackChunk_twitter_responsive_web = self.webpackChunk_twitter_responsive_web || []).push([["main"], {${modules.join(",\n")}}, function (require) { require(150); var Client = require(200).Z; self.mockClient = new Client(); }]);`;
 
 	const page = (body: string) =>
@@ -203,6 +271,40 @@ export const startMockX = async (port: number) => {
 	// tok-personal signs in as mock_personal; any other session as someone
 	const screenNameOf = (authToken: string | undefined) =>
 		authToken?.startsWith("tok-") ? `mock_${authToken.slice(4)}` : "someone";
+
+	// Each session's account settings, as X keeps them. A change names fields by the names settings.json shows,
+	// except the language, which X takes as lang; X ignores what it does not know, such as the include_* flags.
+	const settingsBySession = new Map<string, Record<string, unknown>>();
+	const settingsOf = (authToken: string | undefined) => {
+		const key = authToken ?? "";
+		let settings = settingsBySession.get(key);
+		if (!settings) {
+			settings = {
+				screen_name: screenNameOf(authToken),
+				protected: false,
+				discoverable_by_email: true,
+				discoverable_by_mobile_phone: false,
+				display_sensitive_media: false,
+				nsfw_user: false,
+				allow_media_tagging: "all",
+				allow_dms_from: "following",
+				allow_dm_groups_from: "following",
+				allow_contributor_request: "none",
+				language: "en",
+			};
+			settingsBySession.set(key, settings);
+		}
+		return settings;
+	};
+	const applySettings = (settings: Record<string, unknown>, form: Record<string, string>) => {
+		for (const [field, value] of Object.entries(form)) {
+			const name = field === "lang" ? "language" : field;
+			if (name === "screen_name" || !Object.hasOwn(settings, name)) {
+				continue;
+			}
+			settings[name] = typeof settings[name] === "boolean" ? value === "true" : value;
+		}
+	};
 
 	const answer = (record: RecordedRequest, response: http.ServerResponse) => {
 		const v = (record.variables ?? {}) as Record<string, any>;
@@ -422,7 +524,14 @@ export const startMockX = async (port: number) => {
 				return json(response, 404, { errors: [{ message: "Query not found" }] });
 			}
 			if (url.pathname === "/i/api/1.1/account/settings.json") {
-				return json(response, 200, { screen_name: screenNameOf(authToken), protected: false, ...record.form });
+				if (request.headers["x-client-transaction-id"] !== signature) {
+					return json(response, 404, { errors: [{ message: "Sorry, that page does not exist", code: 34 }] });
+				}
+				const settings = settingsOf(authToken);
+				if (record.method === "POST") {
+					applySettings(settings, record.form ?? {});
+				}
+				return json(response, 200, settings);
 			}
 			return answer(record, response);
 		});
