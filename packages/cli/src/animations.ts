@@ -110,20 +110,33 @@ export const installAnimationSampling = () => {
 		};
 	};
 
+	// The replacements are proxies of the natives, so their name, length, own properties and descriptors stay the
+	// natives' own, and Function.prototype.toString prints each as the native it replaces, as stealth patches do.
+	// A page that checks them, as X's scripts may, sees the browser's functions.
+	const disguised = new WeakMap<object, object>();
+	const replace = (holder: any, key: string, apply: (native: any, self: any, args: any[]) => unknown) => {
+		const native = holder[key];
+		const replacement = new Proxy(native, { apply: (target, self, args) => apply(target, self, args) });
+		disguised.set(replacement, native);
+		holder[key] = replacement;
+	};
+	replace(scope.Function.prototype, "toString", (native, self, args) =>
+		Reflect.apply(native, disguised.get(self) ?? self, args),
+	);
+
 	const animated = new WeakMap<object, { animation: any; sample: Sampler }>();
-	const nativeAnimate = element.prototype.animate;
-	element.prototype.animate = function (this: object, keyframes: any, options?: any) {
-		const animation = nativeAnimate.call(this, keyframes, options);
-		const sample = samplerOf(keyframes, options);
+	replace(element.prototype, "animate", (native, self, args) => {
+		const animation = Reflect.apply(native, self, args);
+		const sample = samplerOf(args[0], args[1]);
 		if (sample) {
-			animated.set(this, { animation, sample });
+			animated.set(self, { animation, sample });
 		}
 		return animation;
-	};
+	});
 
-	const nativeStyle = scope.getComputedStyle;
-	scope.getComputedStyle = function (this: unknown, target: object, pseudo?: string | null) {
-		const style = nativeStyle.call(this, target, pseudo);
+	replace(scope, "getComputedStyle", (native, self, args) => {
+		const style: any = Reflect.apply(native, self, args);
+		const [target, pseudo] = args;
 		const entry = pseudo ? undefined : animated.get(target);
 		const time = entry?.animation.currentTime;
 		// A browser that samples animations itself already shows the rotation
@@ -146,5 +159,5 @@ export const installAnimationSampling = () => {
 				return typeof value === "function" ? value.bind(declaration) : value;
 			},
 		});
-	};
+	});
 };

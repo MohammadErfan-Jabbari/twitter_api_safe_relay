@@ -4,6 +4,7 @@
 //   no auth_token -> redirect to the login page    "challenge" -> redirect to /account/access
 //   "hang"        -> API requests never answer      "basic"     -> bookmark folders answer 403 (no Premium)
 //   "overloaded"  -> API requests answer 503 with a page that is not JSON
+// The page also reports to /probe how the functions x-cli replaces look to its own scripts.
 // Like x.com, the page signs each request with an x-client-transaction-id read from a paused animation, and the
 // account settings endpoint answers 404 code 34 when the signature is wrong.
 import crypto from "node:crypto";
@@ -177,6 +178,37 @@ const client = `function (module, exports, require) {
 	require.d(exports, { Z: function () { return Client; } });
 }`;
 
+// What a page script can learn about each function x-cli replaces: its name, length, source text by every route,
+// own properties, whether it constructs, and the descriptor of the property that holds it. The same facts from a
+// fresh frame's window, which x-cli leaves alone, show what the browser's own functions look like.
+const probe = `(function () {
+	var describe = function (window) {
+		var facts = {};
+		[[window.Element.prototype, "animate"], [window, "getComputedStyle"], [window.Function.prototype, "toString"]].forEach(function (pair) {
+			var fn = pair[0][pair[1]];
+			var d = Object.getOwnPropertyDescriptor(pair[0], pair[1]);
+			var constructs;
+			try { Reflect.construct(String, [], fn); constructs = true; } catch (e) { constructs = false; }
+			facts[pair[1]] = {
+				name: fn.name,
+				length: fn.length,
+				toString: fn.toString(),
+				called: window.Function.prototype.toString.call(fn),
+				string: String(fn),
+				ownKeys: Reflect.ownKeys(fn).map(String),
+				descriptor: { writable: d.writable, enumerable: d.enumerable, configurable: d.configurable },
+				constructs: constructs
+			};
+		});
+		return facts;
+	};
+	var frame = document.createElement("iframe");
+	document.documentElement.appendChild(frame);
+	var report = { page: describe(window), fresh: describe(frame.contentWindow), freshTouched: Boolean(frame.contentWindow.__xCliAnimationSampling) };
+	frame.remove();
+	fetch("/probe", { method: "POST", keepalive: true, body: JSON.stringify(report) });
+})();`;
+
 const tweetEntry = (id: string, screenName: string, text: string) => ({
 	entryId: `tweet-${id}`,
 	content: {
@@ -241,6 +273,7 @@ export const startMockX = async (port: number) => {
 	);
 	const features = Object.fromEntries(operations.map(([name, , switches]) => [name, switches]));
 	const requests: RecordedRequest[] = [];
+	const probes: Record<string, any>[] = [];
 	const held: http.ServerResponse[] = [];
 
 	const modules = operations.map(
@@ -470,7 +503,7 @@ export const startMockX = async (port: number) => {
 				return response.end();
 			}
 			response.writeHead(200, { "content-type": "text/html" });
-			return response.end(page(`<script>${runtime}</script><script src="/main.js"></script>`));
+			return response.end(page(`<script>${probe}</script><script>${runtime}</script><script src="/main.js"></script>`));
 		}
 		if (url.pathname === "/dead") {
 			// Signed in, but the app never boots: no webpack runtime, no client
@@ -484,6 +517,18 @@ export const startMockX = async (port: number) => {
 		if (url.pathname === "/i/flow/login" || url.pathname === "/account/access") {
 			response.writeHead(200, { "content-type": "text/html" });
 			return response.end(page("<p>Sign in to X</p>"));
+		}
+		if (url.pathname === "/probe") {
+			let text = "";
+			request.on("data", (chunk) => {
+				text += chunk;
+			});
+			request.on("end", () => {
+				probes.push(JSON.parse(text));
+				response.writeHead(204);
+				response.end();
+			});
+			return;
 		}
 		if (!url.pathname.startsWith("/i/api/")) {
 			response.writeHead(404);
@@ -542,6 +587,7 @@ export const startMockX = async (port: number) => {
 		queryIds,
 		features,
 		requests,
+		probes,
 		close: async () => {
 			for (const response of held) {
 				response.destroy();
