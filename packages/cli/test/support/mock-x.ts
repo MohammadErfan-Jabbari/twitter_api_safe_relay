@@ -9,6 +9,7 @@
 // account settings endpoint answers 404 code 34 when the signature is wrong.
 import crypto from "node:crypto";
 import http from "node:http";
+import recorded from "../fixtures/chromium-animations.json" with { type: "json" };
 
 export type RecordedRequest = {
 	method: string;
@@ -76,59 +77,31 @@ const runtime = `
 })();`;
 
 // The animation X's ondemand.s module samples to sign requests (values seen on x.com on 2026-11-27): a div's color
-// and rotation, eased by a cubic-bezier, paused 1500 ms into 4096 ms.
-const signing = {
-	from: [0x2a, 0x03, 0xe0],
-	to: [0xe2, 0x0f, 0x59],
-	degrees: 167,
-	curve: [0.71, 0.51, 0.38, -0.8] as const,
-	time: 1500,
-	duration: 4096,
-};
+// and rotation, eased by a cubic-bezier, paused 1500 ms into 4096 ms. The recording holds it first, with what real
+// Chromium read from it.
+const signing = recorded.cases[0]!;
 
-// What Chrome reads back from that animation, worked out here rather than in the page: the color rounded to whole
-// channels and the rotation matrix's first four values to two places, as the signature uses them.
-const expectedSignature = () => {
-	const [x1, y1, x2, y2] = signing.curve;
-	const at = (a: number, b: number, t: number) => 3 * a * (1 - t) ** 2 * t + 3 * b * (1 - t) * t ** 2 + t ** 3;
-	const progress = signing.time / signing.duration;
-	let low = 0;
-	let high = 1;
-	let t = 0.5;
-	while (high - low > 1e-12) {
-		t = (low + high) / 2;
-		if (at(x1, x2, t) < progress) {
-			low = t;
-		} else {
-			high = t;
-		}
-	}
-	const eased = at(y1, y2, t);
-	const color = signing.from.map((from, i) =>
-		Math.round(Math.min(255, Math.max(0, from + (signing.to[i]! - from) * eased))),
-	);
-	const radians = (signing.degrees * eased * Math.PI) / 180;
-	const matrix = [Math.cos(radians), Math.sin(radians), -Math.sin(radians), Math.cos(radians)];
+// X's signature uses the color's whole channels and the rotation matrix's first four values to two places
+const signatureOf = (style: { color: string; transform: string }) => {
+	const numbers = (text: string) => (text.match(/-?[\d.]+(?:e-?\d+)?/g) ?? []).map(Number);
+	const color = numbers(style.color).slice(0, 3).map(Math.round);
+	const matrix = style.transform === "none" ? [1, 0, 0, 1] : numbers(style.transform).slice(0, 4);
 	return `${color.join(",")}|${matrix.map((value) => Math.abs(value).toFixed(2)).join(",")}`;
 };
 
 // Like ondemand.s: animate a div, pause it, and read the computed style. A browser that ignores the animation reads
-// the div's own color and no transform, and so signs every request wrongly.
+// the div's own color and no transform, and so signs every request wrongly. The server checks the id against the
+// same function applied to Chromium's reading.
 const signer = `function (module) {
 	var div = document.createElement("div");
 	document.body.appendChild(div);
-	var animation = div.animate({
-		color: ["#${signing.from.map((c) => c.toString(16).padStart(2, "0")).join("")}", "#${signing.to.map((c) => c.toString(16).padStart(2, "0")).join("")}"],
-		transform: ["rotate(0deg)", "rotate(${signing.degrees}deg)"],
-		easing: "cubic-bezier(${signing.curve.join(",")})"
-	}, ${signing.duration});
+	var animation = div.animate(${JSON.stringify(signing.keyframes)}, ${signing.duration});
 	animation.pause();
 	animation.currentTime = ${signing.time};
 	var style = getComputedStyle(div);
-	var color = (style.color.match(/[\\d.]+/g) || []).slice(0, 3).map(function (v) { return Math.round(Number(v)); });
-	var matrix = style.transform === "none" ? [1, 0, 0, 1] : (style.transform.match(/-?[\\d.]+(?:e-?\\d+)?/g) || []).slice(0, 4).map(Number);
+	var id = (${signatureOf})({ color: style.color, transform: style.transform });
 	div.remove();
-	module.exports = { id: color.join(",") + "|" + matrix.map(function (v) { return Math.abs(v).toFixed(2); }).join(",") };
+	module.exports = { id: id };
 }`;
 
 const client = `function (module, exports, require) {
@@ -284,7 +257,7 @@ export const startMockX = async (port: number) => {
 	modules.push("150:function(e){e.exports=void 0}");
 	modules.push(`160:${signer}`);
 	modules.push(`200:${client}`);
-	const signature = expectedSignature();
+	const signature = signatureOf(signing.chromium);
 	const bundle = `(self.webpackChunk_twitter_responsive_web = self.webpackChunk_twitter_responsive_web || []).push([["main"], {${modules.join(",\n")}}, function (require) { require(150); var Client = require(200).Z; self.mockClient = new Client(); }]);`;
 
 	const page = (body: string) =>
