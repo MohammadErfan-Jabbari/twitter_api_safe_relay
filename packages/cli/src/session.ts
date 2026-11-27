@@ -97,6 +97,25 @@ const tail = (file: string) => {
 
 export type Sessions = ReturnType<typeof createSessions>;
 
+// What X's refusal of an operation means, from the HTTP status, X's error codes and its first message
+export const refusalOf = (
+	name: string,
+	operation: Operation,
+	status: number | undefined,
+	codes: number[],
+	message: string,
+): XCliError => {
+	if (operation.premium && (status === 403 || /premium|subscri|blue|verified/i.test(message))) {
+		return new XCliError("premium_required", "Bookmark folders need X Premium on this account", { status, message });
+	}
+	// On an endpoint that always exists, X's "page does not exist" means it refused the request's
+	// x-client-transaction-id, which the page computes from a paused animation (src/animations.ts)
+	if (operation.signatureChecked && status === 404 && codes.includes(34)) {
+		return new XCliError("signature_rejected", `X refused the page's request signature on ${name}`, { status, codes });
+	}
+	return new XCliError("x_error", `X refused ${name}: ${message}`, { status, codes });
+};
+
 export const createSessions = (config: Config, options: { clock?: Clock; env?: NodeJS.ProcessEnv } = {}) => {
 	const clock = options.clock ?? realClock;
 	const env = options.env ?? process.env;
@@ -535,25 +554,11 @@ export const createSessions = (config: Config, options: { clock?: Clock; env?: N
 					current.stale = true;
 					throw state;
 				}
-				if (operation.premium && (httpStatus === 403 || /premium|subscri|blue|verified/i.test(message))) {
-					throw new XCliError("premium_required", "Bookmark folders need X Premium on this account", {
-						status: httpStatus,
-						message,
-					});
-				}
-				// The settings endpoint always exists, so X's "page does not exist" there means it refused the request's
-				// x-client-transaction-id, which the page computes from a paused animation (src/animations.ts)
-				if (spec.kind === "rest" && httpStatus === 404 && codes.includes(34)) {
-					throw new XCliError("signature_rejected", `X refused the page's request signature on ${name}`, {
-						status: httpStatus,
-						codes: reported,
-					});
-				}
 				if (spec.kind === "graphql" && httpStatus === 404) {
 					// X no longer accepts this query ID; reload the page so the next call reads the current one.
 					current.stale = true;
 				}
-				throw new XCliError("x_error", `X refused ${name}: ${message}`, { status: httpStatus, codes: reported });
+				throw refusalOf(name, operation, httpStatus, reported, message);
 			}
 			return operation.extract((outcome as { value: unknown }).value, args);
 		});

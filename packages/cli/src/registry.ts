@@ -21,6 +21,9 @@ export type Operation<A extends z.ZodType = z.ZodType> = {
 	search?: boolean;
 	// Bookmark folders are an X Premium feature
 	premium?: boolean;
+	// X answers 404 code 34 on this endpoint only when it refuses the request's signature, because the endpoint
+	// always exists. Elsewhere 404 code 34 can mean a missing resource.
+	signatureChecked?: boolean;
 	args: A;
 	request: GraphQLSpec | RestSpec;
 	extract: (response: any, args: z.infer<A>) => unknown;
@@ -69,6 +72,7 @@ export const registry = {
 	}),
 	"account.settings": op({
 		access: "read",
+		signatureChecked: true,
 		args: z.object({}).strict(),
 		request: {
 			kind: "rest",
@@ -92,6 +96,7 @@ export const registry = {
 	}),
 	"account.updateSettings": op({
 		access: "write",
+		signatureChecked: true,
 		args: z
 			.object(settingsFields)
 			.partial()
